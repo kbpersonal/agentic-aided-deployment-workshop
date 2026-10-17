@@ -8,7 +8,7 @@
 6. While the PR is open, have Copilot run `kubectl --server=http://kb-gke-dev -n dev-kartik get all`, then `-n kube-system`. PAM refuses the second.
 7. Review PR 1: a StatefulSet, two replicas, and the pre-made ServiceAccount and ConfigMap. It has no Service, Ingress, Secret or credential.
 8. Merge. Watch `deploy.yml` join the tailnet as an ephemeral `tag:ci-deployer` over GitHub OIDC and apply through PAM.
-9. Open `https://workshop-app.<tailnet>.ts.net` as the author. Reload a few times; "Served by" changes between replicas.
+9. Open `https://workshop-app.<tailnet>.ts.net` as the author. "Served by" names the replica your client picked; clients stay on one healthy host.
 10. Delete `workshop-app-0` through PAM and reload. The Service stays up.
 11. Try the URL as the teammate. The connection is dropped before it reaches the app.
 12. Open PR 2 in the policy repository to add the teammate to `group:workshop-team` and to the Service grant. Show the `action: test` run.

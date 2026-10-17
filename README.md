@@ -195,6 +195,10 @@ Then delete the PAM service `kb-gke-dev` and the connector in the admin console,
 - `service hosts must be tagged nodes`: `TS_TAG` is missing.
 - The Service has hosts but never answers: `autoApprovers.services` must map `svc:workshop-app` to `tag:workshop-app`.
 
+### The Service resolves but connections time out
+
+The hosts are `ready`, yet `tailscale debug netmap` on the client lists no `workshop-app-*` peers. Some control-plane paths decide peer visibility from grant destinations that name devices, not Services. The grant therefore lists both `svc:workshop-app` and `tag:workshop-app` on `tcp:443`. The app listens only on the Service address, so the tag destination exposes nothing extra.
+
 ### kubectl through PAM is refused
 
 - `Forbidden` naming `tag:ci-deployer@service.border0.com` or your login: PAM let the request through, and RBAC refused it. Check the `pam-edit` RoleBinding.

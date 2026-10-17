@@ -28,7 +28,7 @@
 		},
 		{
 			"src": ["AUTHOR_LOGIN"],
-			"dst": ["svc:workshop-app"],
+			"dst": ["svc:workshop-app", "tag:workshop-app"],
 			"ip":  ["tcp:443"],
 		},
 		{
