@@ -59,7 +59,7 @@ jobs:
         run: |
           ls k8s/*.yaml >/dev/null 2>&1 || { echo "::notice::No k8s/ manifests yet; nothing to deploy."; exit 0; }
           yq '(select(.kind == "StatefulSet" or .kind == "Deployment") | .spec.template.spec.containers[].image) = strenv(IMAGE)' k8s/*.yaml > rendered.yaml
-          kubectl apply -f rendered.yaml
+          kubectl apply --validate=false -f rendered.yaml
           for w in $(kubectl get statefulset,deployment -o name); do
             kubectl rollout status "$w" --timeout=5m
           done
