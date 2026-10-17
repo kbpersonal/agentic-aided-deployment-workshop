@@ -10,14 +10,6 @@ output "deploy_audience" {
   value = tailscale_federated_identity.deploy.audience
 }
 
-output "agent_client_id" {
-  value = tailscale_federated_identity.agent.id
-}
-
-output "agent_audience" {
-  value = tailscale_federated_identity.agent.audience
-}
-
 output "cluster_dns_endpoint" {
   value = google_container_cluster.this.control_plane_endpoints_config[0].dns_endpoint_config[0].endpoint
 }

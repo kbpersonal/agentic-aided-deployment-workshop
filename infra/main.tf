@@ -125,17 +125,6 @@ resource "tailscale_federated_identity" "deploy" {
   }
 }
 
-resource "tailscale_federated_identity" "agent" {
-  description = "GitHub Actions Copilot agent workflow"
-  issuer      = "https://token.actions.githubusercontent.com"
-  subject     = "${var.github_repo_subject_prefix}:*"
-  scopes      = ["auth_keys"]
-  tags        = ["tag:ci-agent"]
-  custom_claim_rules = {
-    workflow_ref = "${var.github_repo}/.github/workflows/copilot.yml@*"
-  }
-}
-
 resource "tailscale_federated_identity" "policy_test" {
   description = "Policy repository pull request tests"
   issuer      = "https://token.actions.githubusercontent.com"
