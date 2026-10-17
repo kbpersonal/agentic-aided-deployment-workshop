@@ -9,7 +9,7 @@
 7. Review PR 1: a StatefulSet, two replicas, and the pre-made ServiceAccount and ConfigMap. It has no Service, Ingress, Secret or credential.
 8. Merge. Watch `deploy.yml` join the tailnet as an ephemeral `tag:ci-deployer` over GitHub OIDC and apply through PAM.
 9. Open `https://workshop-app.<tailnet>.ts.net` as the author. "Served by" names the replica your client picked; clients stay on one healthy host.
-10. Delete `workshop-app-0` through PAM and reload. The Service stays up.
+10. Delete the serving replica through PAM and keep reloading. Expect one failed request, then the Service answers again in about 5 to 10 seconds as the pod returns with its saved identity.
 11. Try the URL as the teammate. The connection is dropped before it reaches the app.
 12. Open PR 2 in the policy repository to add the teammate to `group:workshop-team` and to the Service grant. Show the `action: test` run.
 13. Merge PR 2. Reload as the teammate; the app appears with their identity.

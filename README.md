@@ -10,7 +10,7 @@ Nobody in this story holds a kubeconfig, a cloud credential, a Tailscale auth ke
 
 **Act 2: the agent ships it.** Copilot CLI runs through [Aperture](https://tailscale.com/docs/aperture), so model access is a tailnet grant instead of an API key. The repository's `.github/copilot-instructions.md` is the platform contract: one namespace, a pre-made ServiceAccount and ConfigMap, no cluster-scoped objects. The agent writes `k8s/` and opens a pull request. It can inspect the namespace through the same Tailscale PAM service the pipeline uses, with the developer's own identity.
 
-**Act 3: production and access.** The merge triggers a deploy. The runner joins the tailnet as an ephemeral `tag:ci-deployer` via GitHub OIDC and runs `kubectl apply` against `http://kb-gke-dev`, a Tailscale PAM Kubernetes service. PAM confines it to `dev-kartik`, and Kubernetes RBAC confines it again. Every replica runs the same binary with `TS_SERVICE=svc:workshop-app`, so the one name `https://workshop-app.<tailnet>.ts.net` stays up while any replica is. A second pull request, in the policy repository, grants the team access. Reverting it revokes access.
+**Act 3: production and access.** The merge triggers a deploy. The runner joins the tailnet as an ephemeral `tag:ci-deployer` via GitHub OIDC and runs `kubectl apply` against `http://kb-gke-dev`, a Tailscale PAM Kubernetes service. PAM confines it to `dev-kartik`, and Kubernetes RBAC confines it again. Every replica runs the same binary with `TS_SERVICE=svc:workshop-app`, so one name, `https://workshop-app.<tailnet>.ts.net`, is served by every replica that is up. A second pull request, in the policy repository, grants the team access. Reverting it revokes access.
 
 ## Architecture
 
@@ -153,7 +153,7 @@ Merge the pull request. CI runs the tests, builds the image, and validates that 
 
 A container package pushed from a public repository's workflow inherits public visibility, so the cluster pulls without credentials. For a private fork, add an image pull secret to the namespace.
 
-Open `https://workshop-app.<tailnet>.ts.net`. The "Served by" field names the replica that answered. Delete one pod with `kubectl --server=http://kb-gke-dev -n dev-kartik delete pod workshop-app-0` and reload; the other replica keeps the Service up.
+Open `https://workshop-app.<tailnet>.ts.net`. The "Served by" field names the replica that answered. Delete the replica serving you (the "Served by" field) with `kubectl --server=http://kb-gke-dev -n dev-kartik delete pod <replica>` and keep reloading. A client stays on one healthy host, so expect one failed request. The StatefulSet recreates the pod with the same tailnet identity from its Secret, and the Service answers again in about 5 to 10 seconds. If the replacement is slow to return, clients move to the other replica.
 
 ## Step 7: Default deny, then team access
 
