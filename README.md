@@ -82,6 +82,8 @@ In the admin console, open **Network → Connectors → Add connector → Kubern
 ```bash
 cd infra
 cp terraform.tfvars.example terraform.tfvars   # fill in, including the invite code
+# GitHub OIDC subjects use immutable owner and repository IDs; read each prefix with:
+gh api repos/OWNER/REPO/actions/oidc/customization/sub -q .sub_claim_prefix
 export TAILSCALE_API_KEY=...                   # admin API access token for the tailnet
 terraform init
 terraform apply -target=google_container_cluster.this

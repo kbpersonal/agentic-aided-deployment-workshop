@@ -117,7 +117,7 @@ resource "tailscale_federated_identity" "app" {
 resource "tailscale_federated_identity" "deploy" {
   description = "GitHub Actions deploy workflow"
   issuer      = "https://token.actions.githubusercontent.com"
-  subject     = "repo:${var.github_repo}:ref:refs/heads/main"
+  subject     = "${var.github_repo_subject_prefix}:ref:refs/heads/main"
   scopes      = ["auth_keys"]
   tags        = ["tag:ci-deployer"]
   custom_claim_rules = {
@@ -128,7 +128,7 @@ resource "tailscale_federated_identity" "deploy" {
 resource "tailscale_federated_identity" "agent" {
   description = "GitHub Actions Copilot agent workflow"
   issuer      = "https://token.actions.githubusercontent.com"
-  subject     = "repo:${var.github_repo}:*"
+  subject     = "${var.github_repo_subject_prefix}:*"
   scopes      = ["auth_keys"]
   tags        = ["tag:ci-agent"]
   custom_claim_rules = {
@@ -139,15 +139,18 @@ resource "tailscale_federated_identity" "agent" {
 resource "tailscale_federated_identity" "policy_test" {
   description = "Policy repository pull request tests"
   issuer      = "https://token.actions.githubusercontent.com"
-  subject     = "repo:${var.policy_repo}:pull_request"
+  subject     = "${var.policy_repo_subject_prefix}:pull_request"
   scopes      = ["policy_file:read"]
 }
 
 resource "tailscale_federated_identity" "policy_apply" {
   description = "Policy repository apply from main"
   issuer      = "https://token.actions.githubusercontent.com"
-  subject     = "repo:${var.policy_repo}:ref:refs/heads/main"
+  subject     = "${var.policy_repo_subject_prefix}:environment:tailnet-policy"
   scopes      = ["policy_file"]
+  custom_claim_rules = {
+    ref = "refs/heads/main"
+  }
 }
 
 resource "tailscale_service" "app" {

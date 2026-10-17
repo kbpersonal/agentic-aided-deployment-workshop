@@ -42,3 +42,13 @@ variable "policy_repo" {
   type        = string
   description = "owner/name of the private tailnet policy repository."
 }
+
+variable "github_repo_subject_prefix" {
+  type        = string
+  description = "GitHub OIDC sub prefix for the app repository: gh api repos/OWNER/REPO/actions/oidc/customization/sub -q .sub_claim_prefix"
+}
+
+variable "policy_repo_subject_prefix" {
+  type        = string
+  description = "GitHub OIDC sub prefix for the policy repository, read the same way."
+}
