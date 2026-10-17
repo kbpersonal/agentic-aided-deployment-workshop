@@ -34,9 +34,9 @@ locals {
   name      = "kb-agentic-workshop"
   namespace = "dev-${var.developer}"
   ksa       = "workshop-app"
-}
 
-data "google_project" "this" {}
+  app_audience = "tailscale/${local.name}"
+}
 
 data "google_client_config" "this" {}
 
@@ -105,21 +105,11 @@ provider "helm" {
   }
 }
 
-resource "google_service_account" "app" {
-  account_id   = "${local.name}-app"
-  display_name = "Workshop app Tailscale identity"
-}
-
-resource "google_service_account_iam_member" "app_workload_identity" {
-  service_account_id = google_service_account.app.name
-  role               = "roles/iam.workloadIdentityUser"
-  member             = "serviceAccount:${data.google_project.this.project_id}.svc.id.goog[${local.namespace}/${local.ksa}]"
-}
-
 resource "tailscale_federated_identity" "app" {
   description = "GKE workshop app replicas"
-  issuer      = "https://accounts.google.com"
-  subject     = google_service_account.app.unique_id
+  issuer      = "https://container.googleapis.com/v1/${google_container_cluster.this.id}"
+  subject     = "system:serviceaccount:${local.namespace}:${local.ksa}"
+  audience    = local.app_audience
   scopes      = ["auth_keys"]
   tags        = ["tag:workshop-app"]
 }
@@ -200,10 +190,10 @@ resource "kubernetes_config_map_v1" "tailscale" {
     namespace = kubernetes_namespace_v1.dev.metadata[0].name
   }
   data = {
-    TS_CLIENT_ID = "${tailscale_federated_identity.app.id}?ephemeral=false&preauthorized=true"
-    TS_AUDIENCE  = tailscale_federated_identity.app.audience
-    TS_TAG       = "tag:workshop-app"
-    TS_SERVICE   = tailscale_service.app.name
+    TS_CLIENT_ID     = "${tailscale_federated_identity.app.id}?ephemeral=false&preauthorized=true"
+    TS_ID_TOKEN_FILE = "/var/run/secrets/tailscale/token"
+    TS_TAG           = "tag:workshop-app"
+    TS_SERVICE       = tailscale_service.app.name
   }
 }
 
@@ -211,9 +201,6 @@ resource "kubernetes_service_account_v1" "app" {
   metadata {
     name      = local.ksa
     namespace = kubernetes_namespace_v1.dev.metadata[0].name
-    annotations = {
-      "iam.gke.io/gcp-service-account" = google_service_account.app.email
-    }
   }
 }
 

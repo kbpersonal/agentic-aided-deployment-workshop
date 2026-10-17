@@ -4,8 +4,8 @@ The platform team has given this application one Kubernetes namespace, `dev-kart
 
 ## What already exists in `dev-kartik`
 
-- ServiceAccount `workshop-app`. It is bound to a Google service account through GKE Workload Identity and may read and write Secrets and Events in the namespace, which is what tsnet needs to keep its state.
-- ConfigMap `tailscale` with `TS_CLIENT_ID`, `TS_AUDIENCE`, `TS_TAG`, and `TS_SERVICE`. With those set, the app joins the tailnet through workload identity federation; no auth key exists anywhere.
+- ServiceAccount `workshop-app`. It may read and write Secrets and Events in the namespace, which is what tsnet needs to keep its state. Tailscale trusts this ServiceAccount's tokens through workload identity federation, so no auth key exists anywhere.
+- ConfigMap `tailscale` with `TS_CLIENT_ID`, `TS_ID_TOKEN_FILE`, `TS_TAG`, and `TS_SERVICE`. `TS_ID_TOKEN_FILE` is `/var/run/secrets/tailscale/token`: mount a projected `serviceAccountToken` volume there with `audience: tailscale/kb-agentic-workshop` and `path: token`.
 
 ## How the app runs in production
 

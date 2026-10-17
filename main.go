@@ -28,6 +28,13 @@ func main() {
 	}
 
 	s := &tsnet.Server{Hostname: tsHostname, Dir: os.Getenv("TS_STATE_DIR"), UserLogf: log.Printf}
+	if f := os.Getenv("TS_ID_TOKEN_FILE"); f != "" {
+		tok, err := os.ReadFile(f)
+		if err != nil {
+			log.Fatal(err)
+		}
+		s.IDToken = strings.TrimSpace(string(tok))
+	}
 	if tag := os.Getenv("TS_TAG"); tag != "" {
 		s.AdvertiseTags = []string{tag}
 	}

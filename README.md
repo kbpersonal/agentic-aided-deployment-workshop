@@ -29,7 +29,7 @@ private GKE Autopilot cluster (no public IP endpoint, private nodes)
   namespace tailzero:   PAM connector, impersonates the caller
   namespace dev-kartik: StatefulSet workshop-app × 2
                           each pod: tsnet, ListenService(svc:workshop-app)
-                          login: GKE Workload Identity → Tailscale WIF
+                          login: projected SA token → Tailscale WIF
                           state: one Kubernetes Secret per pod
                                        │
                                        ▼
@@ -41,7 +41,7 @@ private GKE Autopilot cluster (no public IP endpoint, private nodes)
 - The cluster's IP control-plane endpoint is disabled. Administrators use the IAM-gated DNS endpoint; developers and CI reach the API only through the PAM service.
 - The developer and CI hold Kubernetes `edit` in `dev-kartik` only, bound to the identities the connector impersonates: the developer's login and `tag:ci-deployer@service.border0.com`.
 - The `tailscale.com/cap/pam` grant restricts Kubernetes requests to `namespaces: ["dev-kartik"]` before RBAC is evaluated.
-- App pods log in with GKE Workload Identity exchanged through Tailscale workload identity federation. No auth key exists.
+- App pods log in with a projected Kubernetes ServiceAccount token, which Tailscale workload identity federation trusts through the cluster's own OIDC issuer. No auth key, Google service account, or IAM binding exists.
 - GitHub Actions logs in with GitHub OIDC, scoped by `workflow_ref` to `deploy.yml` on `main`. No secret is stored in GitHub.
 - The app's identity card comes from headers that Tailscale Serve adds inside the tsnet process; nothing else can reach that listener.
 - Tailscale Funnel is not used. No Kubernetes `Service`, `Ingress`, or load balancer exposes the app.
@@ -91,7 +91,6 @@ terraform apply
 This creates:
 
 - **Network:** a VPC with Cloud NAT and a private GKE Autopilot cluster.
-- **App identity:** the app's Google service account and its Workload Identity binding.
 - **Tailscale:** five trust credentials (app, deploy, agent, policy test, policy apply) and the `svc:workshop-app` Service.
 - **Cluster objects:** namespace `dev-kartik` and its RBAC, the `workshop-app` ServiceAccount, the `tailscale` ConfigMap, and the PAM connector.
 
@@ -190,8 +189,8 @@ Then delete the PAM service `kb-gke-dev` and the connector in the admin console,
 
 `kubectl --server=http://kb-gke-dev -n dev-kartik logs workshop-app-0`.
 
-- `federated identity ... require`: the `tailscale` ConfigMap is missing `TS_CLIENT_ID`/`TS_AUDIENCE`, or the pod is not using the `workshop-app` ServiceAccount.
-- `failed to exchange JWT`: the app trust credential's subject must be the Google service account's numeric unique ID. The Kubernetes ServiceAccount needs the `iam.gke.io/gcp-service-account` annotation, and the Google service account needs `roles/iam.workloadIdentityUser` for `PROJECT.svc.id.goog[dev-kartik/workshop-app]`.
+- `federated identity ... require`: the `tailscale` ConfigMap is missing `TS_CLIENT_ID`/`TS_ID_TOKEN_FILE`, the projected token volume is not mounted, or the pod is not using the `workshop-app` ServiceAccount.
+- `failed to exchange JWT`: the app trust credential's issuer must be the cluster's issuer (`https://container.googleapis.com/v1/projects/P/locations/L/clusters/C`), its subject `system:serviceaccount:dev-kartik:workshop-app`, and its audience must equal the projected token's `audience`.
 - `service hosts must be tagged nodes`: `TS_TAG` is missing.
 - The Service has hosts but never answers: `autoApprovers.services` must map `svc:workshop-app` to `tag:workshop-app`.
 
