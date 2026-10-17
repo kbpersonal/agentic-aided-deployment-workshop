@@ -43,8 +43,9 @@
 							"rules": [{
 								"api_groups": ["*"],
 								"namespaces": ["dev-kartik"],
-								"resources":  ["*"],
-								"verbs":      ["*"],
+								"resources":      ["*"],
+								"resource_names": ["*"],
+								"verbs":          ["*"],
 							}],
 						},
 					},
