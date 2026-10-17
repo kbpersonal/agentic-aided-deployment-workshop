@@ -12,11 +12,20 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-go@v7
         with:
-          node-version: 24
-      - run: npm test
-      - run: docker build --tag agentic-aided-deployment-workshop:${{ github.sha }} .
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test ./...
+      - run: docker build --tag workshop-app:${{ github.sha }} .
+      - name: Validate manifests
+        if: hashFiles('k8s/**') != ''
+        run: |
+          for f in k8s/*.yaml; do
+            yq -e 'select(.metadata.namespace != "dev-kartik")' "$f" >/dev/null 2>&1 \
+              && { echo "::error file=$f::every object must be in namespace dev-kartik"; exit 1; }
+          done
+          kubectl apply --dry-run=client --validate=false -f k8s/ >/dev/null

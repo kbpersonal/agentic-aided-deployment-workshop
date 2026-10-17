@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: workshop-app
+  namespace: dev-kartik
+  labels:
+    app.kubernetes.io/name: workshop-app
+spec:
+  serviceName: workshop-app
+  replicas: 2
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: workshop-app
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: workshop-app
+    spec:
+      serviceAccountName: workshop-app
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          image: ghcr.io/kbpersonal/agentic-aided-deployment-workshop:latest
+          envFrom:
+            - configMapRef:
+                name: tailscale
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: TS_HOSTNAME
+              value: $(POD_NAME)
+            - name: TS_STATE
+              value: kube:$(POD_NAME)
+            - name: TS_STATE_DIR
+              value: /var/lib/tsnet
+            - name: HEALTH_ADDR
+              value: ":8080"
+          ports:
+            - name: health
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: health
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tsnet
+              mountPath: /var/lib/tsnet
+            - name: tailscale-token
+              mountPath: /var/run/secrets/tailscale
+              readOnly: true
+      volumes:
+        - name: tsnet
+          emptyDir: {}
+        - name: tailscale-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: tailscale/kb-agentic-workshop
+                  expirationSeconds: 3600
+                  path: token

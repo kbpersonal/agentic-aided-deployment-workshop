@@ -1,3 +1,4 @@
-node_modules/
-coverage/
+.terraform/
+*.tfstate*
+*.tfvars
 .env

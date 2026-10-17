@@ -1,47 +1,66 @@
-name: Deploy private workshop app
+name: Deploy
 
 on:
   workflow_run:
     workflows: [CI]
     types: [completed]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
+  packages: write
   id-token: write
 
 concurrency:
-  group: workshop-production
+  group: dev-kartik
   cancel-in-progress: false
+
+env:
+  NAMESPACE: dev-kartik
+  PAM_SERVICE: kb-gke-dev
 
 jobs:
   deploy:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - name: Build release archive
-        run: tar --exclude=.git --exclude=.github --exclude=test -czf /tmp/workshop-app.tgz .
-      - name: Join the tailnet with an ephemeral workload identity
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - id: image
+        run: echo "ref=ghcr.io/${GITHUB_REPOSITORY,,}:${{ github.event.workflow_run.head_sha || github.sha }}" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.image.outputs.ref }}
+      - name: Join the tailnet as tag:ci-deployer
         uses: tailscale/github-action@v4
         with:
-          oauth-client-id: ${{ vars.TS_CLIENT_ID }}
-          audience: ${{ vars.TS_AUDIENCE }}
+          oauth-client-id: ${{ vars.TS_DEPLOY_CLIENT_ID }}
+          audience: ${{ vars.TS_DEPLOY_AUDIENCE }}
           tags: tag:ci-deployer
-          ping: ${{ vars.TS_DEPLOY_HOST }}
-      - name: Deploy over Tailscale SSH
-        env:
-          TS_DEPLOY_HOST: ${{ vars.TS_DEPLOY_HOST }}
+      - name: Point kubectl at the PAM Kubernetes service
         run: |
-          gzip --stdout --decompress /tmp/workshop-app.tgz |
-            tailscale ssh "deploy@${TS_DEPLOY_HOST}" /home/deploy/bin/activate-workshop-release
-      - name: Verify private service
+          kubectl config set-cluster pam --server="http://${PAM_SERVICE}"
+          kubectl config set-credentials pam
+          kubectl config set-context pam --cluster=pam --user=pam --namespace="${NAMESPACE}"
+          kubectl config use-context pam
+      - name: Apply k8s/ with the built image
         env:
-          TS_DEPLOY_HOST: ${{ vars.TS_DEPLOY_HOST }}
+          IMAGE: ${{ steps.image.outputs.ref }}
         run: |
-          tailscale ssh "deploy@${TS_DEPLOY_HOST}" \
-            curl --fail --show-error --silent http://127.0.0.1:3000/health
+          ls k8s/*.yaml >/dev/null 2>&1 || { echo "::notice::No k8s/ manifests yet; nothing to deploy."; exit 0; }
+          yq '(select(.kind == "StatefulSet" or .kind == "Deployment") | .spec.template.spec.containers[].image) = strenv(IMAGE)' k8s/*.yaml > rendered.yaml
+          kubectl apply -f rendered.yaml
+          for w in $(kubectl get statefulset,deployment -o name); do
+            kubectl rollout status "$w" --timeout=5m
+          done
+          kubectl get pods -o wide
