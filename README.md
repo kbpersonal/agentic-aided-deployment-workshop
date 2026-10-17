@@ -77,31 +77,31 @@ Apply this first version once by hand, in the admin console or with the API. The
 
 ## Step 3: Infrastructure
 
-In the admin console, open **Network → Connectors → Add connector → Kubernetes** and copy only the invite code. Terraform installs the chart, so skip the Helm command the wizard shows.
+Terraform builds everything, including the Tailscale PAM connector and the PAM Kubernetes service. It needs two admin credentials, both read from the environment:
+
+- `TAILSCALE_API_KEY`: an API access token for the tailnet (**Settings → Keys**).
+- `BORDER0_TOKEN`: a Tailscale PAM service-account token. Create a service account with the **Member** role under **Settings → PAM → Service accounts**, then create a token for it. Tailscale PAM is managed through the [Border0 Terraform provider](https://tailscale.com/docs/privileged-access-management/how-to/manage-resources-terraform), and this token is its only credential.
 
 ```bash
 cd infra
-cp terraform.tfvars.example terraform.tfvars   # fill in, including the invite code
+cp terraform.tfvars.example terraform.tfvars
 # GitHub OIDC subjects use immutable owner and repository IDs; read each prefix with:
 gh api repos/OWNER/REPO/actions/oidc/customization/sub -q .sub_claim_prefix
-export TAILSCALE_API_KEY=...                   # admin API access token for the tailnet
+export TAILSCALE_API_KEY=...
+export BORDER0_TOKEN=...
 terraform init
 terraform apply -target=google_container_cluster.this
 terraform apply
 ```
 
-This creates:
+The first apply creates the cluster so the Kubernetes and Helm providers have an endpoint. The second creates:
 
 - **Network:** a VPC with Cloud NAT and a private GKE Autopilot cluster.
 - **Tailscale:** four trust credentials (app, deploy, policy test, policy apply) and the `svc:workshop-app` Service.
-- **Cluster objects:** namespace `dev-kartik` and its RBAC, the `workshop-app` ServiceAccount, the `tailscale` ConfigMap, and the PAM connector.
+- **Tailscale PAM:** connector `kb-agentic-workshop` (`border0_connector`), a connector token (`border0_connector_token`), and the Kubernetes service `kb-gke-dev` (`border0_socket`) with impersonation on, using the connector's in-cluster ServiceAccount.
+- **Cluster objects:** namespace `dev-kartik` and its RBAC, the `workshop-app` ServiceAccount, the `tailscale` ConfigMap, and the connector's Helm release. The connector exchanges its token for its own Tailscale auth key at startup.
 
-When the connector shows online, open **Services → Add PAM service → Kubernetes (Standard)**:
-
-- Name: `kb-gke-dev`
-- Connector: `kb-agentic-workshop`
-- Kubeconfig: **System's kubeconfig with current context** (the connector's in-cluster ServiceAccount)
-- **Enable impersonation**: on
+Access to `kb-gke-dev` comes from the `tailscale.com/cap/pam` grant in the policy repository, not from Border0 policies.
 
 ## Step 4: Repository variables
 
@@ -175,7 +175,7 @@ Protect `main` in both repositories: require pull requests, an approval, CODEOWN
 terraform -chdir=infra destroy
 ```
 
-Then delete the PAM service `kb-gke-dev` and the connector in the admin console, and remove any leftover `workshop-app-*` machines.
+This also removes the PAM connector and the `kb-gke-dev` service. Remove any leftover `workshop-app-*` machines.
 
 ## Troubleshooting
 

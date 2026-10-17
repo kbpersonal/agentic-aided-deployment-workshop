@@ -18,8 +18,8 @@ Use the root `README.md` for full commands. This checklist is for rehearsal.
 
 - [ ] `terraform apply` completed; `terraform plan` shows no changes.
 - [ ] GKE IP control-plane endpoint disabled.
-- [ ] Connector `kb-agentic-workshop` online.
-- [ ] PAM service `kb-gke-dev` exists with impersonation on.
+- [ ] Connector `kb-agentic-workshop` online (created by Terraform).
+- [ ] PAM service `kb-gke-dev` exists with impersonation on (created by Terraform).
 - [ ] `svc:workshop-app` exists with port `tcp:443`.
 
 ## GitHub

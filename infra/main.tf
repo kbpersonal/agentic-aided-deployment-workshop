@@ -18,6 +18,10 @@ terraform {
       source  = "tailscale/tailscale"
       version = "~> 0.29"
     }
+    border0 = {
+      source  = "borderzero/border0"
+      version = "~> 3.0"
+    }
   }
 }
 
@@ -29,6 +33,8 @@ provider "google" {
 provider "tailscale" {
   tailnet = var.tailnet
 }
+
+provider "border0" {}
 
 locals {
   name      = "kb-agentic-workshop"
@@ -230,6 +236,28 @@ resource "kubernetes_role_binding_v1" "app_state" {
   }
 }
 
+resource "border0_connector" "this" {
+  name        = local.name
+  description = "PAM connector in the ${local.name} GKE cluster"
+}
+
+resource "border0_connector_token" "this" {
+  connector_id = border0_connector.this.id
+  name         = "${local.name}-helm"
+}
+
+resource "border0_socket" "k8s" {
+  name          = "kb-gke-dev"
+  description   = "Kubernetes API of ${local.name}, scoped by cap/pam grants"
+  socket_type   = "kubernetes"
+  connector_ids = [border0_connector.this.id]
+
+  kubernetes_configuration {
+    service_type          = "standard"
+    impersonation_enabled = true
+  }
+}
+
 resource "helm_release" "tailzero" {
   name             = "tailzero"
   namespace        = "tailzero"
@@ -240,6 +268,6 @@ resource "helm_release" "tailzero" {
 
   values = [yamlencode({
     image  = { tag = var.tailzero_image_tag, pullPolicy = "IfNotPresent" }
-    config = { inviteCode = var.tailzero_invite_code, hostname = local.name }
+    config = { token = border0_connector_token.this.token, hostname = local.name }
   })]
 }
