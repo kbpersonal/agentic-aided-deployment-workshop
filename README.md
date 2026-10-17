@@ -93,7 +93,7 @@ terraform apply
 This creates:
 
 - **Network:** a VPC with Cloud NAT and a private GKE Autopilot cluster.
-- **Tailscale:** five trust credentials (app, deploy, agent, policy test, policy apply) and the `svc:workshop-app` Service.
+- **Tailscale:** four trust credentials (app, deploy, policy test, policy apply) and the `svc:workshop-app` Service.
 - **Cluster objects:** namespace `dev-kartik` and its RBAC, the `workshop-app` ServiceAccount, the `tailscale` ConfigMap, and the PAM connector.
 
 When the connector shows online, open **Services → Add PAM service → Kubernetes (Standard)**:
@@ -108,10 +108,6 @@ When the connector shows online, open **Services → Add PAM service → Kuberne
 ```bash
 gh variable set TS_DEPLOY_CLIENT_ID  --body "$(terraform -chdir=infra output -raw deploy_client_id)"
 gh variable set TS_DEPLOY_AUDIENCE   --body "$(terraform -chdir=infra output -raw deploy_audience)"
-gh variable set TS_AGENT_CLIENT_ID   --body "$(terraform -chdir=infra output -raw agent_client_id)"
-gh variable set TS_AGENT_AUDIENCE    --body "$(terraform -chdir=infra output -raw agent_audience)"
-gh variable set APERTURE_URL         --body "http://<aperture-hostname>"
-gh variable set COPILOT_MODEL        --body "<provider>/<model>"
 
 P=--repo=OWNER/agentic-aided-deployment-policy
 gh variable set TS_TAILNET                $P --body "<tailnet-id>"
@@ -146,8 +142,6 @@ Prompt:
 
 Expect a `k8s/` directory containing a StatefulSet like `docs/reference/workshop-app.yaml`. The agent can check its work with `kubectl --server=http://kb-gke-dev -n dev-kartik get all`. Ask it to try `-n kube-system`; PAM refuses.
 
-Commenting `/copilot <request>` on an issue runs the same agent in GitHub Actions through `.github/workflows/copilot.yml`, joined to the tailnet as `tag:ci-agent`.
-
 ## Step 6: Act 3, deploy
 
 Merge the pull request. CI runs the tests, builds the image, and validates that every object in `k8s/` targets `dev-kartik`. `deploy.yml` then:
@@ -174,8 +168,6 @@ Open the team-access pull request in the policy repository (see its README). The
 ## Repository protection
 
 Protect `main` in both repositories: require pull requests, an approval, CODEOWNER review for workflows and policy, passing checks, and resolved conversations. Disable force pushes. Do not let the agent approve or merge its own change. Pin third-party actions to full commit SHAs before using this outside a workshop.
-
-Pull requests opened by `copilot.yml` use `GITHUB_TOKEN`, so GitHub does not start CI on them automatically. Push an empty commit or re-run CI from the pull request.
 
 ## Cleanup
 

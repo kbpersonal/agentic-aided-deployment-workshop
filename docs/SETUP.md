@@ -9,7 +9,7 @@ Use the root `README.md` for full commands. This checklist is for rehearsal.
 - [ ] Aperture online and tagged `tag:aperture`; the author has a model grant.
 - [ ] Author and teammate login names recorded and substituted in the policy.
 - [ ] No blanket `* → *` grant.
-- [ ] `tag:ci-deployer`, `tag:ci-agent`, `tag:workshop-app`, `tag:border0-managed`, `tag:aperture` in `tagOwners`.
+- [ ] `tag:ci-deployer`, `tag:workshop-app`, `tag:border0-managed`, `tag:aperture` in `tagOwners`.
 - [ ] `autoApprovers.services` maps `svc:workshop-app` to `tag:workshop-app`.
 - [ ] The `cap/pam` grant for `svc:kb-gke-dev` lists only `dev-kartik` in `namespaces`.
 - [ ] Policy tests pass: author accepted on `svc:workshop-app:443`, `tag:ci-deployer` denied.
@@ -24,7 +24,7 @@ Use the root `README.md` for full commands. This checklist is for rehearsal.
 
 ## GitHub
 
-- [ ] App repository variables: `TS_DEPLOY_CLIENT_ID`, `TS_DEPLOY_AUDIENCE`, `TS_AGENT_CLIENT_ID`, `TS_AGENT_AUDIENCE`, `APERTURE_URL`, `COPILOT_MODEL`.
+- [ ] App repository variables: `TS_DEPLOY_CLIENT_ID`, `TS_DEPLOY_AUDIENCE`.
 - [ ] Policy repository variables: `TS_TAILNET` and both policy trust credential IDs and audiences.
 - [ ] Policy repository `tailnet-policy` environment exists, ideally with a required reviewer.
 - [ ] No Tailscale, cloud or model secret is stored in either repository.

@@ -7,7 +7,6 @@
 
 	"tagOwners": {
 		"tag:ci-deployer":     ["autogroup:admin"],
-		"tag:ci-agent":        ["autogroup:admin"],
 		"tag:workshop-app":    ["autogroup:admin"],
 		"tag:border0-managed": ["autogroup:admin"],
 		"tag:aperture":        ["autogroup:admin"],
@@ -53,7 +52,7 @@
 			},
 		},
 		{
-			"src": ["AUTHOR_LOGIN", "tag:ci-agent"],
+			"src": ["AUTHOR_LOGIN"],
 			"dst": ["tag:aperture"],
 			"ip":  ["tcp:80"],
 			"app": {
