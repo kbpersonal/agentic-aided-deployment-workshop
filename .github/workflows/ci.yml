@@ -28,4 +28,8 @@ jobs:
             yq -e 'select(.metadata.namespace != "dev-kartik")' "$f" >/dev/null 2>&1 \
               && { echo "::error file=$f::every object must be in namespace dev-kartik"; exit 1; }
           done
-          kubectl apply --dry-run=client --validate=false -f k8s/ >/dev/null
+          yq -e 'select(.apiVersion == null or .kind == null or .metadata.name == null)' k8s/*.yaml >/dev/null 2>&1 \
+            && { echo "::error::every object needs apiVersion, kind and metadata.name"; exit 1; }
+          yq -e 'select(.kind | test("^(Namespace|ServiceAccount|Role|RoleBinding|ClusterRole|ClusterRoleBinding|Ingress)$"))' k8s/*.yaml >/dev/null 2>&1 \
+            && { echo "::error::k8s/ must not create cluster or RBAC objects"; exit 1; }
+          true
