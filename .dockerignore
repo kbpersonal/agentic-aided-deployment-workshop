@@ -1,6 +1,7 @@
 .git
 .github
-node_modules
-test
-deploy
-npm-debug.log
+infra
+k8s
+docs
+policy
+*_test.go

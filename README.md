@@ -1,540 +1,209 @@
 # Agentic-Aided Deployment Beyond Localhost
 
-This repository is a forkable workshop showing how an agent-assisted application moves from localhost to a private, identity-scoped Tailscale Service through reviewed GitHub changes.
+A developer has an app that runs on their laptop. The platform team has given them one Kubernetes namespace in a private GKE cluster and nothing else. They know nothing about Kubernetes. Their agent, GitHub Copilot CLI, turns the app into manifests and opens a pull request. GitHub Actions deploys it through Tailscale, and the team reaches it at one private HTTPS name served by several replicas.
 
-The application is intentionally not trusted to authenticate users. Tailscale decides who can reach it before traffic reaches the application.
+Nobody in this story holds a kubeconfig, a cloud credential, a Tailscale auth key, or a model API key.
 
-## What You Build
+## The story in three acts
+
+**Act 1: localhost to tailnet.** The app is a Go program built with [tsnet](https://tailscale.com/docs/features/tsnet). Run it with `TS_HOSTNAME` set and it joins the tailnet as its own device, with HTTPS, reachable by its owner and nobody else. No Tailscale Service, no server.
+
+**Act 2: the agent ships it.** Copilot CLI runs through [Aperture](https://tailscale.com/docs/aperture), so model access is a tailnet grant instead of an API key. The repository's `.github/copilot-instructions.md` is the platform contract: one namespace, a pre-made ServiceAccount and ConfigMap, no cluster-scoped objects. The agent writes `k8s/` and opens a pull request. It can inspect the namespace through the same Tailscale PAM service the pipeline uses, with the developer's own identity.
+
+**Act 3: production and access.** The merge triggers a deploy. The runner joins the tailnet as an ephemeral `tag:ci-deployer` via GitHub OIDC and runs `kubectl apply` against `http://kb-gke-dev`, a Tailscale PAM Kubernetes service. PAM confines it to `dev-kartik`, and Kubernetes RBAC confines it again. Every replica runs the same binary with `TS_SERVICE=svc:workshop-app`, so the one name `https://workshop-app.<tailnet>.ts.net` stays up while any replica is. A second pull request, in the policy repository, grants the team access. Reverting it revokes access.
+
+## Architecture
 
 ```text
-developer or agent
-       |
-       | pull request
-       v
-GitHub repository -- CI --> reviewed main branch
-                              |
-                              | GitHub OIDC
-                              v
-                    ephemeral tag:ci-deployer
-                              |
-                              | Tailscale SSH
-                              v
-private GCP VM: tag:demo-host
-  - no external IP
-  - no inbound GCP firewall rules
-  - app listens on 127.0.0.1:3000
-  - Tailscale Service terminates HTTPS
-                              |
-                              v
-              https://workshop-app.<tailnet>.ts.net
+developer laptop                      GitHub
+  Copilot CLI ──Aperture (tailnet)──►  pull request ── CI ── merge
+  kubectl ──┐                                                  │
+            │                                       GitHub OIDC│
+            │                                                  ▼
+            │                                   ephemeral tag:ci-deployer
+            │                                                  │
+            └──────── tailnet ── svc:kb-gke-dev (PAM, Kubernetes) ◄──┘
+                                       │ cap/pam: namespace dev-kartik only
+                                       ▼
+private GKE Autopilot cluster (no public IP endpoint, private nodes)
+  namespace tailzero:   PAM connector, impersonates the caller
+  namespace dev-kartik: StatefulSet workshop-app × 2
+                          each pod: tsnet, ListenService(svc:workshop-app)
+                          login: GKE Workload Identity → Tailscale WIF
+                          state: one Kubernetes Secret per pod
+                                       │
+                                       ▼
+                     https://workshop-app.<tailnet>.ts.net
 ```
 
-Access is a separate reviewed change in a tailnet-policy repository:
+## Security boundaries
 
-```json
-{
-  "src": ["group:workshop-team"],
-  "dst": ["svc:workshop-app"],
-  "ip": ["tcp:443"]
-}
-```
-
-## Security Boundaries
-
-- The VM has no external IP and no public inbound firewall rule.
-- The application port is published only on VM loopback.
-- GitHub Actions receives an ephemeral Tailscale identity from GitHub OIDC.
-- The GCP host joins with its Google service-account identity through workload identity federation.
-- CI can reach only the deployment host on TCP 22.
-- Humans receive access to the named Service, not to the underlying VM.
-- Tailscale Funnel is not used.
-- The application contains no shared password or public authentication endpoint.
-- Every deployment and access change is represented by a GitHub diff.
+- The cluster's IP control-plane endpoint is disabled. Administrators use the IAM-gated DNS endpoint; developers and CI reach the API only through the PAM service.
+- The developer and CI hold Kubernetes `edit` in `dev-kartik` only, bound to the identities the connector impersonates: the developer's login and `tag:ci-deployer@service.border0.com`.
+- The `tailscale.com/cap/pam` grant restricts Kubernetes requests to `namespaces: ["dev-kartik"]` before RBAC is evaluated.
+- App pods log in with GKE Workload Identity exchanged through Tailscale workload identity federation. No auth key exists.
+- GitHub Actions logs in with GitHub OIDC, scoped by `workflow_ref` to `deploy.yml` on `main`. No secret is stored in GitHub.
+- The app's identity card comes from headers that Tailscale Serve adds inside the tsnet process; nothing else can reach that listener.
+- Tailscale Funnel is not used. No Kubernetes `Service`, `Ingress`, or load balancer exposes the app.
 
 ## Repositories
 
-Use two repositories:
-
-1. This application repository. It contains source, tests, deployment automation, and host bootstrap files.
-2. A private policy repository based on [`rajsinghtech/agentic-aided-deployment-policy`](https://github.com/rajsinghtech/agentic-aided-deployment-policy). It contains the tailnet policy and the second pull request.
-
-Keep the policy repository private because policy files commonly contain user login names.
+1. This application repository: app, platform contract, workflows, and `infra/`.
+2. A private policy repository, for example [`kbpersonal/agentic-aided-deployment-policy`](https://github.com/kbpersonal/agentic-aided-deployment-policy). `policy/policy.hujson` here is the template. Keep the policy repository private because it contains login names.
 
 ## Prerequisites
 
-You need:
-
-- A Tailscale tailnet where you are Owner, Admin, or Network admin.
+- A tailnet with HTTPS certificates and Tailscale PAM enabled (**Settings → PAM**), where you are an Admin or Owner.
+- An Aperture instance on the tailnet, tagged `tag:aperture`, for Copilot CLI.
 - Two Tailscale users for the before/after access demonstration.
-- A GitHub account with Actions enabled.
-- A Google Cloud project with billing and Compute Engine enabled.
-- `git`, `gh`, `gcloud`, `curl`, and `jq` installed locally.
-- Permission to create GitHub Actions and Google Cloud OIDC trust credentials in Tailscale.
+- A Google Cloud project with GKE enabled.
+- `go`, `terraform`, `kubectl`, `gcloud`, `gh`, `copilot` (GitHub Copilot CLI), and [`aperture`](https://github.com/tailscale/aperture-cli) installed locally.
 
-The example uses Google Cloud, but the deployment host can be any persistent Linux machine that can make outbound connections and run Docker and Tailscale.
-
-## Choose Your Values
-
-Set these once in your shell. Use the exact login names shown on the Tailscale **Users** page, not display names.
+## Step 1: Act 1 on your laptop
 
 ```bash
-export GITHUB_OWNER="your-github-user-or-org"
-export APP_REPO="agentic-aided-deployment-workshop"
-export POLICY_REPO="agentic-aided-deployment-policy"
-
-export GCP_PROJECT="your-gcp-project"
-export GCP_REGION="us-central1"
-export GCP_ZONE="us-central1-a"
-
-export TS_TAILNET="your-tailnet-id"
-export TS_DNS_NAME="your-tailnet-dns-name"
-export TS_AUTHOR="author@example.com"
-export TS_TEAMMATE="teammate@example.com"
-
-export TS_SERVICE="svc:workshop-app"
-export TS_SERVICE_URL="https://workshop-app.${TS_DNS_NAME}.ts.net"
-export TS_DEPLOY_HOST="agentic-workshop-host"
+go test ./...
+go run .                              # http://127.0.0.1:3000
+TS_HOSTNAME=workshop-app-laptop go run .
 ```
 
-Find the values in Tailscale:
+The second run prints a login URL the first time. Open it, then open the `https://workshop-app-laptop.<tailnet>.ts.net` address the program prints. The identity card shows who you are; the page is reachable only by you, through the `autogroup:self` grant.
 
-- Tailnet ID: **Admin console > Settings > General**.
-- DNS name: **Admin console > DNS** or the suffix shown by `tailscale status` on a connected device.
-- User logins: **Admin console > Users**.
+## Step 2: Baseline tailnet policy
 
-## Step 1: Fork or Copy the Repositories
+Copy `policy/policy.hujson` into the private policy repository. Replace `AUTHOR_LOGIN` and `TEAMMATE_LOGIN` with exact login names from **Users**. If the tailnet already has a policy, merge these sections into it. A blanket `* → *` grant would hide the default-deny demonstration, so remove it.
 
-Fork this repository and create a private copy of the policy repository.
+Apply this first version once by hand, in the admin console or with the API. The next step creates the tags' trust credentials, and those need the tags to exist. After that, the policy repository's workflow owns the file.
+
+## Step 3: Infrastructure
+
+In the admin console, open **Network → Connectors → Add connector → Kubernetes** and copy only the invite code. Terraform installs the chart, so skip the Helm command the wizard shows.
 
 ```bash
-gh repo fork rajsinghtech/agentic-aided-deployment-workshop \
-  --clone \
-  --fork-name "$APP_REPO"
-
-gh repo create "$GITHUB_OWNER/$POLICY_REPO" \
-  --private \
-  --description "GitOps policy for the private deployment workshop"
+cd infra
+cp terraform.tfvars.example terraform.tfvars   # fill in, including the invite code
+export TAILSCALE_API_KEY=...                   # admin API access token for the tailnet
+terraform init
+terraform apply -target=google_container_cluster.this
+terraform apply
 ```
 
-Copy the contents of the example policy repository into your private policy repository. Do not copy any credential from this workshop environment.
+This creates:
 
-## Step 2: Verify the Application Locally
+- **Network:** a VPC with Cloud NAT and a private GKE Autopilot cluster.
+- **App identity:** the app's Google service account and its Workload Identity binding.
+- **Tailscale:** five trust credentials (app, deploy, agent, policy test, policy apply) and the `svc:workshop-app` Service.
+- **Cluster objects:** namespace `dev-kartik` and its RBAC, the `workshop-app` ServiceAccount, the `tailscale` ConfigMap, and the PAM connector.
+
+When the connector shows online, open **Services → Add PAM service → Kubernetes (Standard)**:
+
+- Name: `kb-gke-dev`
+- Connector: `kb-agentic-workshop`
+- Kubeconfig: **System's kubeconfig with current context** (the connector's in-cluster ServiceAccount)
+- **Enable impersonation**: on
+
+## Step 4: Repository variables
 
 ```bash
-npm test
-npm start
-curl --fail http://127.0.0.1:3000/health
+gh variable set TS_DEPLOY_CLIENT_ID  --body "$(terraform -chdir=infra output -raw deploy_client_id)"
+gh variable set TS_DEPLOY_AUDIENCE   --body "$(terraform -chdir=infra output -raw deploy_audience)"
+gh variable set TS_AGENT_CLIENT_ID   --body "$(terraform -chdir=infra output -raw agent_client_id)"
+gh variable set TS_AGENT_AUDIENCE    --body "$(terraform -chdir=infra output -raw agent_audience)"
+gh variable set APERTURE_URL         --body "http://<aperture-hostname>"
+gh variable set COPILOT_MODEL        --body "<provider>/<model>"
+
+P=--repo=OWNER/agentic-aided-deployment-policy
+gh variable set TS_TAILNET                $P --body "<tailnet-id>"
+gh variable set TS_POLICY_TEST_CLIENT_ID  $P --body "$(terraform -chdir=infra output -raw policy_test_client_id)"
+gh variable set TS_POLICY_TEST_AUDIENCE   $P --body "$(terraform -chdir=infra output -raw policy_test_audience)"
+gh variable set TS_POLICY_APPLY_CLIENT_ID $P --body "$(terraform -chdir=infra output -raw policy_apply_client_id)"
+gh variable set TS_POLICY_APPLY_AUDIENCE  $P --body "$(terraform -chdir=infra output -raw policy_apply_audience)"
 ```
 
-Expected health response:
+These are identifiers, not secrets. A token is issued only to a workflow whose OIDC claims match.
 
-```json
-{
-  "status": "ok",
-  "service": "agentic-aided-deployment-workshop",
-  "uptimeSeconds": 1
-}
-```
-
-You can simulate Tailscale identity headers only for presentation testing:
+## Step 5: Act 2, Copilot CLI through Aperture
 
 ```bash
-curl \
-  -H "Tailscale-User-Login: ${TS_AUTHOR}" \
-  -H "Tailscale-User-Name: Workshop Author" \
-  http://127.0.0.1:3000/
+aperture   # pick GitHub Copilot and a model; it launches `copilot` with BYOK pointed at Aperture
 ```
 
-These headers are not trustworthy when a client can reach the backend directly. In the deployed design, only Tailscale Serve can reach the loopback backend and it removes spoofed identity headers before adding verified ones.
-
-## Step 3: Configure the Baseline Tailnet Policy
-
-Open `policy.hujson` in your private policy repository and replace the example author and teammate login names with `$TS_AUTHOR` and `$TS_TEAMMATE`.
-
-The baseline must contain:
-
-- `tag:ci-deployer` and `tag:demo-host`.
-- Service host auto-approval for `svc:workshop-app`.
-- CI-to-host TCP 22 access and a matching Tailscale SSH rule.
-- Author-to-Service TCP 443 access.
-- A policy test proving the teammate is denied.
-
-If this is a disposable workshop tailnet, the baseline file can be the complete policy. If this is a shared tailnet, merge these sections into the existing policy instead of replacing unrelated rules.
-
-Commit the baseline to the private policy repository. Step 5 configures GitHub OIDC identities that validate it on pull requests and apply the exact merged file. Participants do not create or store a Tailscale API token.
-
-## Step 4: Define the Named Tailscale Service
-
-Define `svc:workshop-app` in **Admin console > Services**:
-
-- Name: `workshop-app`
-- Port: `tcp:443`
-- Description: `Agentic-aided private deployment workshop`
-
-```text
-https://workshop-app.<tailnet-dns-name>.ts.net
-```
-
-Enable HTTPS certificates for the tailnet. Do not enable Funnel.
-
-## Step 5: Create the GitHub Workload Identities
-
-Create separate identities for deployment, policy testing, and policy application. Separating them prevents an application deployment job from changing tailnet access.
-
-### Application deployment identity
-
-In **Tailscale Admin console > Settings > Trust credentials**:
-
-1. Select **Credential > OpenID Connect**.
-2. Choose GitHub Actions as the issuer.
-3. Restrict the subject to your application repository and protected branch. A typical subject is:
-
-   ```text
-   repo:GITHUB_OWNER/APP_REPO:ref:refs/heads/main
-   ```
-
-4. Prefer additional claim restrictions for repository ID, owner ID, workflow, and branch when available.
-5. Grant only the `auth_keys` scope.
-6. Permit only `tag:ci-deployer`.
-7. Copy the generated Client ID and Audience. They are identifiers, not passwords.
-
-Add repository variables:
+`aperture` sets `COPILOT_PROVIDER_BASE_URL`, `COPILOT_PROVIDER_TYPE`, `COPILOT_MODEL`, and `COPILOT_OFFLINE=true`, so Copilot CLI needs no GitHub Copilot sign-in and no model API key. To launch it by hand:
 
 ```bash
-gh variable set TS_CLIENT_ID \
-  --repo "$GITHUB_OWNER/$APP_REPO" \
-  --body "YOUR_TAILSCALE_CLIENT_ID"
-
-gh variable set TS_AUDIENCE \
-  --repo "$GITHUB_OWNER/$APP_REPO" \
-  --body "YOUR_TAILSCALE_AUDIENCE"
-
-gh variable set TS_DEPLOY_HOST \
-  --repo "$GITHUB_OWNER/$APP_REPO" \
-  --body "$TS_DEPLOY_HOST"
+COPILOT_OFFLINE=true \
+COPILOT_PROVIDER_TYPE=anthropic \
+COPILOT_PROVIDER_BASE_URL=http://<aperture-hostname> \
+COPILOT_PROVIDER_API_KEY=not-needed \
+COPILOT_MODEL=<provider>/<model> \
+copilot
 ```
 
-The workflow requests `id-token: write`, exchanges the GitHub JWT for a short-lived Tailscale identity, and creates an ephemeral `tag:ci-deployer` node. The runner logs out automatically when the job finishes.
+Prompt:
 
-### Policy test identity
+> Ship this app to production in my namespace, highly available. Follow the platform contract, then open a pull request.
 
-Create a second GitHub OIDC trust credential for the private policy repository:
+Expect a `k8s/` directory containing a StatefulSet like `docs/reference/workshop-app.yaml`. The agent can check its work with `kubectl --server=http://kb-gke-dev -n dev-kartik get all`. Ask it to try `-n kube-system`; PAM refuses.
 
-1. Restrict it to pull-request jobs for `GITHUB_OWNER/POLICY_REPO`.
-2. Grant `policy_file:read` and any read dependencies shown by the Tailscale trust-credential UI.
-3. Do not grant `auth_keys`, device administration, or policy write.
+Commenting `/copilot <request>` on an issue runs the same agent in GitHub Actions through `.github/workflows/copilot.yml`, joined to the tailnet as `tag:ci-agent`.
 
-Save its Client ID and Audience as policy-repository variables:
+## Step 6: Act 3, deploy
 
-```bash
-gh variable set TS_POLICY_TEST_CLIENT_ID \
-  --repo "$GITHUB_OWNER/$POLICY_REPO" \
-  --body "YOUR_POLICY_TEST_CLIENT_ID"
+Merge the pull request. CI runs the tests, builds the image, and validates that every object in `k8s/` targets `dev-kartik`. `deploy.yml` then:
 
-gh variable set TS_POLICY_TEST_AUDIENCE \
-  --repo "$GITHUB_OWNER/$POLICY_REPO" \
-  --body "YOUR_POLICY_TEST_AUDIENCE"
-```
+1. Builds and pushes `ghcr.io/<owner>/<repo>:<sha>`.
+2. Joins the tailnet as an ephemeral `tag:ci-deployer` with GitHub OIDC.
+3. Points kubectl at `http://kb-gke-dev` with empty credentials.
+4. Substitutes the image into every workload in `k8s/`, applies the manifests, and waits for the rollout.
 
-### Policy apply identity
+The GHCR package must be public, or the cluster needs pull credentials. After the first push, set the package's visibility in **Package settings**.
 
-Create a third GitHub OIDC trust credential:
+Open `https://workshop-app.<tailnet>.ts.net`. The "Served by" field names the replica that answered. Delete one pod with `kubectl --server=http://kb-gke-dev -n dev-kartik delete pod workshop-app-0` and reload; the other replica keeps the Service up.
 
-1. Restrict it to the policy repository's protected `main` branch and the policy workflow.
-2. Grant `policy_file` write and only its required read dependencies.
-3. Do not grant device, DNS, auth-key, or unrelated API scopes.
+## Step 7: Default deny, then team access
 
-Save its identifiers:
+Before the access change:
 
-```bash
-gh variable set TS_POLICY_APPLY_CLIENT_ID \
-  --repo "$GITHUB_OWNER/$POLICY_REPO" \
-  --body "YOUR_POLICY_APPLY_CLIENT_ID"
+- The author opens the Service URL and gets the app.
+- The teammate's connection fails. Tailscale drops the traffic before the app sees it, so there is no HTTP 403.
+- `kubectl --server=http://kb-gke-dev get pods -n kube-system` fails for everyone.
 
-gh variable set TS_POLICY_APPLY_AUDIENCE \
-  --repo "$GITHUB_OWNER/$POLICY_REPO" \
-  --body "YOUR_POLICY_APPLY_AUDIENCE"
+Open the team-access pull request in the policy repository (see its README). The pull request runs `action: test`; merging applies the exact file. Reload as the teammate. Revert the pull request to revoke access; the app and cluster are untouched.
 
-gh variable set TS_TAILNET \
-  --repo "$GITHUB_OWNER/$POLICY_REPO" \
-  --body "$TS_TAILNET"
-```
+## Repository protection
 
-The official `tailscale/gitops-acl-action` uses these OIDC identities. Pull requests run `action: test`; the manually approved apply job runs `action: apply` against the exact protected-branch file.
+Protect `main` in both repositories: require pull requests, an approval, CODEOWNER review for workflows and policy, passing checks, and resolved conversations. Disable force pushes. Do not let the agent approve or merge its own change. Pin third-party actions to full commit SHAs before using this outside a workshop.
 
-## Step 6: Provision the Private GCP Host
-
-The reference host uses:
-
-- A dedicated custom VPC and subnet.
-- No external IP.
-- No ingress firewall rules.
-- Private Google Access.
-- Cloud NAT for outbound package, Tailscale, DERP, and image traffic.
-- VPC Flow Logs and Cloud NAT error logging.
-- A dedicated GCP service account with no project-wide application role.
-- Shielded VM features.
-
-Create the network:
-
-```bash
-gcloud config set project "$GCP_PROJECT"
-
-gcloud compute networks create agentic-workshop-net \
-  --subnet-mode=custom \
-  --bgp-routing-mode=regional
-
-gcloud compute networks subnets create agentic-workshop-subnet \
-  --network=agentic-workshop-net \
-  --region="$GCP_REGION" \
-  --range=10.240.0.0/24 \
-  --enable-private-ip-google-access \
-  --enable-flow-logs
-
-gcloud compute routers create agentic-workshop-router \
-  --network=agentic-workshop-net \
-  --region="$GCP_REGION"
-
-gcloud compute routers nats create agentic-workshop-nat \
-  --router=agentic-workshop-router \
-  --region="$GCP_REGION" \
-  --nat-all-subnet-ip-ranges \
-  --auto-allocate-nat-external-ips \
-  --enable-logging \
-  --log-filter=ERRORS_ONLY
-```
-
-Create a dedicated service account:
-
-```bash
-gcloud iam service-accounts create agentic-workshop-host \
-  --display-name="Agentic workshop Tailscale host"
-```
-
-Get the service account's immutable numeric ID:
-
-```bash
-export GCP_HOST_SERVICE_ACCOUNT="agentic-workshop-host@${GCP_PROJECT}.iam.gserviceaccount.com"
-export GCP_HOST_SERVICE_ACCOUNT_ID="$(
-  gcloud iam service-accounts describe "$GCP_HOST_SERVICE_ACCOUNT" \
-    --format='value(uniqueId)'
-)"
-```
-
-Create a Tailscale workload identity for the VM:
-
-1. Open **Tailscale Admin console > Settings > Trust credentials**.
-2. Select **Credential > OpenID Connect > Google Cloud**.
-3. Match the immutable service-account unique ID as the subject.
-4. Grant only `auth_keys`.
-5. Permit only `tag:demo-host`.
-6. Copy the Client ID and Audience.
-
-The VM retrieves its signed identity token from the GCP metadata service. No Tailscale auth key is generated, placed in metadata, or stored on disk.
-
-Render the startup script locally:
-
-```bash
-export TS_HOST_CLIENT_ID="YOUR_GCP_TAILSCALE_CLIENT_ID"
-export TS_HOST_AUDIENCE="YOUR_GCP_TAILSCALE_AUDIENCE"
-
-python - "$TS_HOST_CLIENT_ID" "$TS_HOST_AUDIENCE" <<'PY'
-from pathlib import Path
-import sys
-
-template = Path("deploy/gcp-startup.sh").read_text()
-rendered = template.replace("__TS_HOST_CLIENT_ID__", sys.argv[1])
-rendered = rendered.replace("__TS_HOST_AUDIENCE__", sys.argv[2])
-Path("/tmp/gcp-startup.sh").write_text(rendered)
-PY
-```
-
-The Client ID and Audience identify a trust relationship; they are not bearer credentials. The trust is useful only when Tailscale receives a valid Google-signed token matching the configured service-account subject.
-
-Create the VM:
-
-```bash
-gcloud compute instances create "$TS_DEPLOY_HOST" \
-  --zone="$GCP_ZONE" \
-  --machine-type=e2-small \
-  --network-interface=network=agentic-workshop-net,subnet=agentic-workshop-subnet,no-address \
-  --image-family=debian-12 \
-  --image-project=debian-cloud \
-  --boot-disk-size=20GB \
-  --boot-disk-type=pd-balanced \
-  --service-account="agentic-workshop-host@${GCP_PROJECT}.iam.gserviceaccount.com" \
-  --scopes=cloud-platform \
-  --metadata-from-file=startup-script=/tmp/gcp-startup.sh,activate-workshop-release=deploy/activate-workshop-release \
-  --shielded-secure-boot \
-  --shielded-vtpm \
-  --shielded-integrity-monitoring \
-  --labels=purpose=agentic-workshop,public-ingress=none
-```
-
-After the host appears in Tailscale:
-
-1. Confirm it owns only `tag:demo-host`.
-2. Confirm Tailscale SSH is enabled.
-3. Confirm route acceptance and tailnet DNS acceptance are disabled unless you intentionally need them.
-4. Confirm the Service advertisement is approved and reports `ready`.
-5. Remove the startup script from instance metadata after provisioning so future configuration comes from reviewed infrastructure code.
-
-```bash
-gcloud compute instances remove-metadata "$TS_DEPLOY_HOST" \
-  --zone="$GCP_ZONE" \
-  --keys=startup-script
-```
-
-No GCP ingress firewall rule is required for SSH, port 3000, or HTTPS. All intended ingress arrives through Tailscale.
-
-## Step 7: Deploy Through GitHub Actions
-
-The deployment workflow in `.github/workflows/deploy.yml` runs only after CI succeeds on `main`, or when manually dispatched.
-
-It performs four actions:
-
-1. Checks out the reviewed commit.
-2. Creates an application release archive.
-3. Joins the tailnet as an ephemeral `tag:ci-deployer` node using GitHub OIDC.
-4. Streams the release over Tailscale SSH to `/home/deploy/bin/activate-workshop-release`.
-
-Run it manually for the first deployment:
-
-```bash
-gh workflow run deploy.yml --repo "$GITHUB_OWNER/$APP_REPO"
-gh run watch --repo "$GITHUB_OWNER/$APP_REPO"
-```
-
-Successful deployment proves:
-
-- OIDC token exchange works.
-- The CI tag is permitted.
-- The policy allows CI to reach only the deployment host on TCP 22.
-- Tailscale SSH authorizes the exact `deploy` account.
-- The backend answers on VM loopback.
-
-## Step 8: Test Default Deny
-
-Before the team-access pull request:
-
-1. The author opens `$TS_SERVICE_URL` and receives the app.
-2. The teammate opens the same URL and cannot connect.
-3. Neither person can SSH to the host.
-4. The application is not reachable through the VM's GCP address because the VM has no external IP.
-
-A Tailscale policy denial normally looks like a failed connection, not an application-generated HTTP `403`, because traffic never reaches the application.
-
-## Step 9: Open the Team-Access Pull Request
-
-Edit the existing `policy.hujson`. Make one small, reviewable change:
-
-```diff
- "groups": {
-   "group:workshop-team": [
-+    "AUTHOR_LOGIN",
-     "TEAMMATE_LOGIN",
-   ],
- },
-
- "grants": [
-+  {
-+    "src": ["group:workshop-team"],
-+    "dst": ["svc:workshop-app"],
-+    "ip": ["tcp:443"],
-+  },
- ]
-```
-
-The pull request should also change the teammate policy test from `deny` to `accept`. Keep host SSH denied for both people.
-
-Review the diff, merge it, then apply the exact merged `policy.hujson`. Seconds later, both group members should be able to open the named Service.
-
-## Step 10: Revoke Access
-
-Use GitHub's **Revert** button on the merged team-access pull request, or create a revert branch locally:
-
-```bash
-git switch main
-git pull --ff-only
-git switch -c revert-team-access
-git revert TEAM_ACCESS_MERGE_COMMIT
-git push -u origin revert-team-access
-gh pr create --fill --base main
-```
-
-After the revert is reviewed, merged, and applied, the teammate loses access while the application and deployment host remain unchanged.
-
-## Repository Protection
-
-Protect `main` in both repositories:
-
-- Require pull requests.
-- Require at least one approval.
-- Require CODEOWNER review for workflow and policy files.
-- Require CI and policy validation.
-- Require conversation resolution.
-- Disable force pushes and branch deletion.
-- Do not let the agent approve or merge its own change.
-
-Pin third-party actions to full commit SHAs before using this outside a workshop. The readable action tags in this repository make the demo easier to follow but are not the final supply-chain hardening step.
+Pull requests opened by `copilot.yml` use `GITHUB_TOKEN`, so GitHub does not start CI on them automatically. Push an empty commit or re-run CI from the pull request.
 
 ## Cleanup
 
-Delete the workshop resources when finished:
-
 ```bash
-gcloud compute instances delete "$TS_DEPLOY_HOST" --zone="$GCP_ZONE"
-gcloud compute routers nats delete agentic-workshop-nat \
-  --router=agentic-workshop-router --region="$GCP_REGION"
-gcloud compute routers delete agentic-workshop-router --region="$GCP_REGION"
-gcloud compute networks subnets delete agentic-workshop-subnet --region="$GCP_REGION"
-gcloud compute networks delete agentic-workshop-net
-gcloud iam service-accounts delete \
-  "agentic-workshop-host@${GCP_PROJECT}.iam.gserviceaccount.com"
+terraform -chdir=infra destroy
 ```
 
-Also:
-
-- Delete the Tailscale machine record for `agentic-workshop-host`.
-- Delete `svc:workshop-app` if it is no longer needed.
-- Delete or restrict the three GitHub trust credentials and the GCP host trust credential.
-- Remove repository secrets and variables that are no longer used.
+Then delete the PAM service `kb-gke-dev` and the connector in the admin console, and remove any leftover `workshop-app-*` machines.
 
 ## Troubleshooting
 
-### GitHub Action says the requested tag is invalid or not permitted
+### Pods are not Ready
 
-The OIDC trust credential does not permit `tag:ci-deployer`, or the tag is absent from `tagOwners`.
+`kubectl --server=http://kb-gke-dev -n dev-kartik logs workshop-app-0`.
 
-### The private VM cannot install packages or connect to Tailscale
+- `federated identity ... require`: the `tailscale` ConfigMap is missing `TS_CLIENT_ID`/`TS_AUDIENCE`, or the pod is not using the `workshop-app` ServiceAccount.
+- `failed to exchange JWT`: the app trust credential's subject must be the Google service account's numeric unique ID. The Kubernetes ServiceAccount needs the `iam.gke.io/gcp-service-account` annotation, and the Google service account needs `roles/iam.workloadIdentityUser` for `PROJECT.svc.id.goog[dev-kartik/workshop-app]`.
+- `service hosts must be tagged nodes`: `TS_TAG` is missing.
+- The Service has hosts but never answers: `autoApprovers.services` must map `svc:workshop-app` to `tag:workshop-app`.
 
-A no-external-IP VM needs Cloud NAT for public package repositories, Tailscale control traffic, and DERP fallback. Private Google Access alone is not enough.
+### kubectl through PAM is refused
 
-### The GCP VM cannot exchange its identity
+- `Forbidden` naming `tag:ci-deployer@service.border0.com` or your login: PAM let the request through, and RBAC refused it. Check the `pam-edit` RoleBinding.
+- Connection refused or timeout: the grant to `svc:kb-gke-dev` is missing, or the runner is not on the tailnet.
 
-Check that the Tailscale Google Cloud trust credential matches the service account's numeric unique ID, not just its email address. Confirm the credential permits only `tag:demo-host`, has `auth_keys`, and that the VM is attached to that exact service account.
+### The deploy cannot pull the image
 
-### The Service exists but is unavailable
+Make the GHCR package public, or add an image pull secret to the namespace.
 
-Check:
+## Workshop runbook
 
-- The host is online and tagged `tag:demo-host`.
-- The Service host is approved.
-- `tailscale serve status --json` reports the Service.
-- The container health endpoint answers on `127.0.0.1:3000`.
-- The user is named by an active grant.
-- The client is connected to the correct tailnet.
-
-### Policy changes do not appear in the console
-
-Refresh the policy page and verify the tailnet ID. The policy API returns an ETag and request ID that can be used as authoritative evidence:
-
-Use the policy workflow's successful apply run and the policy shown in the admin console as evidence. Confirm the workflow used the protected-branch apply identity, not the pull-request test identity.
-
-### A private policy repository does not start GitHub Actions jobs
-
-Check the account or organization Actions billing and runner policy. Do not merge until the OIDC-backed `tailscale/gitops-acl-action` test job actually runs and succeeds.
-
-## Workshop Runbook
-
-See `docs/RUNBOOK.md` for the on-stage sequence and `docs/SETUP.md` for a compact administrator checklist.
+See `docs/RUNBOOK.md` for the on-stage sequence and `docs/SETUP.md` for the rehearsal checklist.

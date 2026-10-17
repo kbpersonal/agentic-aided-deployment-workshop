@@ -4,53 +4,39 @@ Use the root `README.md` for full commands. This checklist is for rehearsal.
 
 ## Tailnet
 
-- [ ] Exact author and teammate Tailscale login names recorded.
-- [ ] Example logins in the policy repository replaced with those exact values.
-- [ ] `tag:ci-deployer` and `tag:demo-host` exist in `tagOwners`.
-- [ ] Baseline policy validates and is applied.
-- [ ] Baseline lets the author reach `svc:workshop-app:443`.
-- [ ] Baseline denies the teammate access to the Service.
-- [ ] CI can reach `tag:demo-host:22` and no application port.
-- [ ] Tailscale SSH permits only the `deploy` account from `tag:ci-deployer`.
-- [ ] HTTPS certificates are enabled.
-- [ ] Funnel is not configured.
-- [ ] `svc:workshop-app` exists and its host is approved.
+- [ ] HTTPS certificates enabled; Funnel not used.
+- [ ] Tailscale PAM enabled (**Settings → PAM**).
+- [ ] Aperture online and tagged `tag:aperture`; the author has a model grant.
+- [ ] Author and teammate login names recorded and substituted in the policy.
+- [ ] No blanket `* → *` grant.
+- [ ] `tag:ci-deployer`, `tag:ci-agent`, `tag:workshop-app`, `tag:border0-managed`, `tag:aperture` in `tagOwners`.
+- [ ] `autoApprovers.services` maps `svc:workshop-app` to `tag:workshop-app`.
+- [ ] The `cap/pam` grant for `svc:kb-gke-dev` lists only `dev-kartik` in `namespaces`.
+- [ ] Policy tests pass: author accepted on `svc:workshop-app:443`, `tag:ci-deployer` denied.
+
+## Infrastructure
+
+- [ ] `terraform apply` completed; `terraform plan` shows no changes.
+- [ ] GKE IP control-plane endpoint disabled.
+- [ ] Connector `kb-agentic-workshop` online.
+- [ ] PAM service `kb-gke-dev` exists with impersonation on.
+- [ ] `svc:workshop-app` exists with port `tcp:443`.
 
 ## GitHub
 
-- [ ] Application and private policy repositories exist.
-- [ ] Branch protection and CODEOWNERS are configured.
-- [ ] GitHub OIDC trust is restricted to the application repository and protected branch.
-- [ ] The deployment trust credential grants only `auth_keys` and `tag:ci-deployer`.
-- [ ] Policy test and policy apply use separate GitHub OIDC trust credentials.
-- [ ] No Tailscale API token is stored in GitHub.
-- [ ] `TS_CLIENT_ID`, `TS_AUDIENCE`, and `TS_DEPLOY_HOST` are repository variables.
-- [ ] CI passes.
-- [ ] Deployment passes from GitHub OIDC through Tailscale SSH.
-- [ ] The team-access change is a separate pull request.
+- [ ] App repository variables: `TS_DEPLOY_CLIENT_ID`, `TS_DEPLOY_AUDIENCE`, `TS_AGENT_CLIENT_ID`, `TS_AGENT_AUDIENCE`, `APERTURE_URL`, `COPILOT_MODEL`.
+- [ ] Policy repository variables: `TS_TAILNET` and both policy trust credential IDs and audiences.
+- [ ] Policy repository `tailnet-policy` environment exists, ideally with a required reviewer.
+- [ ] No Tailscale, cloud or model secret is stored in either repository.
+- [ ] GHCR package public.
+- [ ] Branch protection and CODEOWNERS on both repositories.
 
-## Google Cloud Host
+## End-to-end evidence
 
-- [ ] Dedicated VPC and subnet.
-- [ ] No external IP.
-- [ ] No ingress firewall rules on the dedicated VPC.
-- [ ] Private Google Access enabled.
-- [ ] Cloud NAT and NAT error logging enabled.
-- [ ] VPC Flow Logs enabled.
-- [ ] Dedicated service account attached.
-- [ ] Shielded VM protections enabled.
-- [ ] App binds only to `127.0.0.1:3000`.
-- [ ] Host has only `tag:demo-host`.
-- [ ] Route acceptance and tailnet DNS acceptance are disabled unless required.
-- [ ] VM joins through Google Cloud workload identity federation.
-- [ ] VM trust matches the dedicated service account's immutable unique ID.
-- [ ] No Tailscale auth key exists in instance metadata or on disk.
-
-## End-to-End Evidence
-
-- [ ] Author can open the Service before PR 2.
-- [ ] Teammate cannot open the Service before PR 2.
-- [ ] PR 2 grants only the workshop group to the Service on TCP 443.
-- [ ] Both group members can open the Service after PR 2.
-- [ ] Neither group member can SSH to the host.
-- [ ] Reverting PR 2 revokes teammate access.
+- [ ] Laptop tsnet node reachable by the author only.
+- [ ] Copilot CLI answers through Aperture.
+- [ ] `kubectl --server=http://kb-gke-dev -n dev-kartik get pods` works for the author.
+- [ ] Same command with `-n kube-system` is refused.
+- [ ] Deploy run succeeds from GitHub OIDC through PAM.
+- [ ] Two Ready pods; the Service answers with either replica.
+- [ ] Teammate denied before PR 2, allowed after, denied again after the revert.
