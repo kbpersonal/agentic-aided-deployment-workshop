@@ -157,7 +157,7 @@ Merge the pull request. CI runs the tests, builds the image, and validates that 
 3. Points kubectl at `http://kb-gke-dev` with empty credentials.
 4. Substitutes the image into every workload in `k8s/`, applies the manifests, and waits for the rollout.
 
-The GHCR package must be public, or the cluster needs pull credentials. After the first push, set the package's visibility in **Package settings**.
+A container package pushed from a public repository's workflow inherits public visibility, so the cluster pulls without credentials. For a private fork, add an image pull secret to the namespace.
 
 Open `https://workshop-app.<tailnet>.ts.net`. The "Served by" field names the replica that answered. Delete one pod with `kubectl --server=http://kb-gke-dev -n dev-kartik delete pod workshop-app-0` and reload; the other replica keeps the Service up.
 
@@ -204,6 +204,8 @@ The hosts are `ready`, yet `tailscale debug netmap` on the client lists no `work
 
 - `Forbidden` naming `tag:ci-deployer@service.border0.com` or your login: PAM let the request through, and RBAC refused it. Check the `pam-edit` RoleBinding.
 - Connection refused or timeout: the grant to `svc:kb-gke-dev` is missing, or the runner is not on the tailnet.
+- `no policy rule allows access for verb "get" ... resource name "..."` inside `dev-kartik`: the `cap/pam` Kubernetes rule needs `"resource_names": ["*"]`; without it, requests that name an object match no rule.
+- `failed to download openapi: no policy rule allows access`: client-side validation reads the cluster-scoped `/openapi` path, which a namespace-scoped grant refuses. `deploy.yml` applies with `--validate=false`; the API server still rejects malformed objects.
 
 ### The deploy cannot pull the image
 
