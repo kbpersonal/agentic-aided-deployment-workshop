@@ -14,26 +14,47 @@ Nobody in this story holds a kubeconfig, a cloud credential, a Tailscale auth ke
 
 ## Architecture
 
-```text
-developer laptop                      GitHub
-  Copilot CLI ──Aperture (tailnet)──►  pull request ── CI ── merge
-  kubectl ──┐                                                  │
-            │                                       GitHub OIDC│
-            │                                                  ▼
-            │                                   ephemeral tag:ci-deployer
-            │                                                  │
-            └──────── tailnet ── svc:kb-gke-dev (PAM, Kubernetes) ◄──┘
-                                       │ cap/pam: namespace dev-kartik only
-                                       ▼
-private GKE Autopilot cluster (no public IP endpoint, private nodes)
-  namespace tailzero:   PAM connector, impersonates the caller
-  namespace dev-kartik: StatefulSet workshop-app × 2
-                          each pod: tsnet, ListenService(svc:workshop-app)
-                          login: projected SA token → Tailscale WIF
-                          state: one Kubernetes Secret per pod
-                                       │
-                                       ▼
-                     https://workshop-app.<tailnet>.ts.net
+```mermaid
+flowchart TB
+  subgraph laptop["Developer laptop"]
+    copilot["Copilot CLI"]
+    kubectl["kubectl --server=http://kb-gke-dev"]
+  end
+
+  aperture["Aperture<br/>tag:aperture"]
+
+  subgraph github["GitHub"]
+    pr["Pull request"] --> ci["CI: go test, image build, manifest checks"] --> merge["Merge to main"]
+    merge --> deploy["deploy.yml"]
+  end
+
+  runner["Ephemeral runner<br/>tag:ci-deployer"]
+  pam["svc:kb-gke-dev<br/>Tailscale PAM Kubernetes service<br/>cap/pam: namespace dev-kartik only"]
+
+  subgraph gke["Private GKE Autopilot cluster (no public IP endpoint, private nodes)"]
+    subgraph ns0["namespace tailzero"]
+      connector["PAM connector<br/>impersonates the caller"]
+    end
+    subgraph ns1["namespace dev-kartik"]
+      app0["workshop-app-0<br/>tsnet, logs in with a<br/>projected SA token"]
+      app1["workshop-app-1<br/>tsnet, logs in with a<br/>projected SA token"]
+      secrets[("One state Secret per pod")]
+    end
+  end
+
+  svc["https://workshop-app.&lt;tailnet&gt;.ts.net<br/>svc:workshop-app"]
+  team["Granted users"]
+
+  copilot -- "model calls over the tailnet" --> aperture
+  copilot -- "writes k8s/, opens" --> pr
+  deploy -- "GitHub OIDC" --> runner
+  kubectl -- "developer identity" --> pam
+  runner -- "kubectl apply" --> pam
+  pam --> connector
+  connector -- "Kubernetes API, impersonated" --> ns1
+  app0 & app1 -. "advertise" .-> svc
+  app0 & app1 --- secrets
+  team -- "tcp:443, per policy grant" --> svc
 ```
 
 ## Security boundaries
