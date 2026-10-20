@@ -39,9 +39,7 @@ provider "border0" {}
 locals {
   name      = "kb-agentic-workshop"
   namespace = "dev-${var.developer}"
-  ksa       = "workshop-app"
-
-  app_audience = "tailscale/${local.name}"
+  proxy_tag = "tag:k8s-dev"
 }
 
 data "google_client_config" "this" {}
@@ -111,15 +109,6 @@ provider "helm" {
   }
 }
 
-resource "tailscale_federated_identity" "app" {
-  description = "GKE workshop app replicas"
-  issuer      = "https://container.googleapis.com/v1/${google_container_cluster.this.id}"
-  subject     = "system:serviceaccount:${local.namespace}:${local.ksa}"
-  audience    = local.app_audience
-  scopes      = ["auth_keys"]
-  tags        = ["tag:workshop-app"]
-}
-
 resource "tailscale_federated_identity" "deploy" {
   description = "GitHub Actions deploy workflow"
   issuer      = "https://token.actions.githubusercontent.com"
@@ -148,12 +137,6 @@ resource "tailscale_federated_identity" "policy_apply" {
   }
 }
 
-resource "tailscale_service" "app" {
-  name    = "svc:workshop-app"
-  comment = "Agentic-aided deployment workshop app"
-  ports   = ["tcp:443"]
-}
-
 resource "kubernetes_namespace_v1" "dev" {
   metadata {
     name = local.namespace
@@ -179,60 +162,6 @@ resource "kubernetes_role_binding_v1" "dev_edit" {
     api_group = "rbac.authorization.k8s.io"
     kind      = "User"
     name      = "tag:ci-deployer@service.border0.com"
-  }
-}
-
-resource "kubernetes_config_map_v1" "tailscale" {
-  metadata {
-    name      = "tailscale"
-    namespace = kubernetes_namespace_v1.dev.metadata[0].name
-  }
-  data = {
-    TS_CLIENT_ID     = "${tailscale_federated_identity.app.id}?ephemeral=false&preauthorized=true"
-    TS_ID_TOKEN_FILE = "/var/run/secrets/tailscale/token"
-    TS_TAG           = "tag:workshop-app"
-    TS_SERVICE       = tailscale_service.app.name
-  }
-}
-
-resource "kubernetes_service_account_v1" "app" {
-  metadata {
-    name      = local.ksa
-    namespace = kubernetes_namespace_v1.dev.metadata[0].name
-  }
-}
-
-resource "kubernetes_role_v1" "app_state" {
-  metadata {
-    name      = "workshop-app-state"
-    namespace = kubernetes_namespace_v1.dev.metadata[0].name
-  }
-  rule {
-    api_groups = [""]
-    resources  = ["secrets"]
-    verbs      = ["get", "update", "patch", "create"]
-  }
-  rule {
-    api_groups = [""]
-    resources  = ["events"]
-    verbs      = ["create", "patch", "get"]
-  }
-}
-
-resource "kubernetes_role_binding_v1" "app_state" {
-  metadata {
-    name      = "workshop-app-state"
-    namespace = kubernetes_namespace_v1.dev.metadata[0].name
-  }
-  role_ref {
-    api_group = "rbac.authorization.k8s.io"
-    kind      = "Role"
-    name      = kubernetes_role_v1.app_state.metadata[0].name
-  }
-  subject {
-    kind      = "ServiceAccount"
-    name      = local.ksa
-    namespace = kubernetes_namespace_v1.dev.metadata[0].name
   }
 }
 
@@ -270,4 +199,39 @@ resource "helm_release" "tailzero" {
     image  = { tag = var.tailzero_image_tag, pullPolicy = "IfNotPresent" }
     config = { token = border0_connector_token.this.token, hostname = local.name }
   })]
+}
+
+resource "tailscale_oauth_client" "operator" {
+  description = "GKE workshop Tailscale operator"
+  scopes      = ["devices:core", "auth_keys", "services"]
+  tags        = ["tag:k8s-operator"]
+}
+
+resource "helm_release" "tailscale_operator" {
+  name             = "tailscale-operator"
+  namespace        = "tailscale"
+  create_namespace = true
+  repository       = "https://pkgs.tailscale.com/helmcharts"
+  chart            = "tailscale-operator"
+  version          = var.tailscale_operator_version
+  wait             = true
+
+  values = [yamlencode({
+    oauth          = { clientId = tailscale_oauth_client.operator.id, clientSecret = tailscale_oauth_client.operator.key }
+    operatorConfig = { hostname = "${local.name}-operator" }
+  })]
+}
+
+resource "helm_release" "ingress_proxygroup" {
+  name      = "ingress-proxygroup"
+  namespace = "tailscale"
+  chart     = "${path.module}/charts/proxygroup"
+
+  values = [yamlencode({
+    name     = "dev-ingress"
+    replicas = 2
+    tags     = [local.proxy_tag]
+  })]
+
+  depends_on = [helm_release.tailscale_operator]
 }

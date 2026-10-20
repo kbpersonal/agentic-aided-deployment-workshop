@@ -1,7 +1,9 @@
 .git
 .github
+node_modules
+test
 infra
 k8s
 docs
 policy
-*_test.go
+npm-debug.log

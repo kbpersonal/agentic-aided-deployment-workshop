@@ -7,14 +7,15 @@
 
 	"tagOwners": {
 		"tag:ci-deployer":     ["autogroup:admin"],
-		"tag:workshop-app":    ["autogroup:admin"],
+		"tag:k8s-operator":    ["autogroup:admin"],
+		"tag:k8s-dev":         ["tag:k8s-operator"],
 		"tag:border0-managed": ["autogroup:admin"],
 		"tag:aperture":        ["autogroup:admin"],
 	},
 
 	"autoApprovers": {
 		"services": {
-			"svc:workshop-app":    ["tag:workshop-app"],
+			"tag:k8s-dev":         ["tag:k8s-dev"],
 			"tag:border0-managed": ["tag:border0-managed"],
 		},
 	},
@@ -27,7 +28,7 @@
 		},
 		{
 			"src": ["AUTHOR_LOGIN"],
-			"dst": ["svc:workshop-app", "tag:workshop-app"],
+			"dst": ["svc:workshop-app", "tag:k8s-dev"],
 			"ip":  ["tcp:443"],
 		},
 		{
@@ -75,7 +76,7 @@
 		},
 		{
 			"src":  "tag:ci-deployer",
-			"deny": ["svc:workshop-app:443", "tag:workshop-app:443"],
+			"deny": ["svc:workshop-app:443"],
 		},
 	],
 }

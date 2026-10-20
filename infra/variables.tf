@@ -46,3 +46,8 @@ variable "policy_repo_subject_prefix" {
   type        = string
   description = "GitHub OIDC sub prefix for the policy repository, read the same way."
 }
+
+variable "tailscale_operator_version" {
+  type    = string
+  default = "1.104.1"
+}

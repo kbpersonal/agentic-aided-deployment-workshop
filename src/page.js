@@ -1,116 +1,51 @@
-package main
-
-import (
-	"encoding/json"
-	"html/template"
-	"net/http"
-	"net/url"
-	"strings"
-	"time"
-)
-
-const maxHeaderLength = 320
-
-type identity struct {
-	Login      string
-	Name       string
-	ProfilePic string
+export function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
-type pageData struct {
-	Identity  *identity
-	Hostname  string
-	Mode      string
-	Timestamp string
-	Uptime    int
+function identityCard(identity) {
+  if (!identity.authenticated) {
+    return `
+      <div class="identity empty">
+        <div class="avatar">?</div>
+        <div>
+          <p class="eyebrow">Identity passport</p>
+          <h2>No trusted identity forwarded</h2>
+          <p>Direct requests are intentionally anonymous. Tailscale Serve adds identity at the private edge.</p>
+        </div>
+      </div>`;
+  }
+
+  const name = escapeHtml(identity.name);
+  const login = escapeHtml(identity.login);
+  const avatar = identity.profilePic
+    ? `<img class="avatar" src="${escapeHtml(identity.profilePic)}" alt="">`
+    : `<div class="avatar">${escapeHtml(identity.name.slice(0, 1).toUpperCase())}</div>`;
+
+  return `
+    <div class="identity">
+      ${avatar}
+      <div>
+        <p class="eyebrow">Identity passport</p>
+        <h2>${name}</h2>
+        <p class="login">${login}</p>
+        <span class="badge">via Tailscale</span>
+      </div>
+    </div>`;
 }
 
-type app struct {
-	hostname string
-	mode     string
-	started  time.Time
-	now      func() time.Time
-	identify func(*http.Request) *identity
-}
-
-var securityHeaders = map[string]string{
-	"Cache-Control":           "no-store",
-	"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src https: data:; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
-	"Permissions-Policy":      "camera=(), microphone=(), geolocation=()",
-	"Referrer-Policy":         "no-referrer",
-	"X-Content-Type-Options":  "nosniff",
-	"X-Frame-Options":         "DENY",
-}
-
-func (a *app) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	for k, v := range securityHeaders {
-		w.Header().Set(k, v)
-	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		w.Header().Set("Allow", "GET, HEAD")
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method_not_allowed"})
-		return
-	}
-	switch r.URL.Path {
-	case "/health":
-		writeJSON(w, http.StatusOK, map[string]any{
-			"status":        "ok",
-			"service":       "agentic-aided-deployment-workshop",
-			"uptimeSeconds": a.uptime(),
-		})
-	case "/":
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		page.Execute(w, pageData{
-			Identity:  a.identify(r),
-			Hostname:  a.hostname,
-			Mode:      a.mode,
-			Timestamp: a.now().UTC().Format(time.RFC3339),
-			Uptime:    a.uptime(),
-		})
-	default:
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
-	}
-}
-
-func (a *app) uptime() int { return int(a.now().Sub(a.started).Seconds()) }
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
-}
-
-func identityFromHeaders(r *http.Request) *identity {
-	login := clean(r.Header.Get("Tailscale-User-Login"))
-	if login == "" {
-		return nil
-	}
-	name := clean(r.Header.Get("Tailscale-User-Name"))
-	if name == "" {
-		name = login
-	}
-	return &identity{Login: login, Name: name, ProfilePic: safeProfileURL(r.Header.Get("Tailscale-User-Profile-Pic"))}
-}
-
-func clean(v string) string {
-	v = strings.TrimSpace(v)
-	if len(v) > maxHeaderLength {
-		return ""
-	}
-	return v
-}
-
-func safeProfileURL(v string) string {
-	u, err := url.Parse(clean(v))
-	if err != nil || u.Scheme != "https" {
-		return ""
-	}
-	return u.String()
-}
-
-var page = template.Must(template.New("page").Funcs(template.FuncMap{
-	"initial": func(s string) string { return strings.ToUpper(s[:1]) },
-}).Parse(`<!doctype html>
+export function renderPage({
+  identity,
+  hostname,
+  timestamp,
+  uptimeSeconds,
+  version,
+}) {
+  return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -159,36 +94,18 @@ var page = template.Must(template.New("page").Funcs(template.FuncMap{
         <div class="stamp">Private<br>by default</div>
       </header>
       <section class="grid">
-        {{- with .Identity}}
-        <div class="identity">
-          {{if .ProfilePic}}<img class="avatar" src="{{.ProfilePic}}" alt="">{{else}}<div class="avatar">{{initial .Name}}</div>{{end}}
-          <div>
-            <p class="eyebrow">Identity passport</p>
-            <h2>{{.Name}}</h2>
-            <p class="login">{{.Login}}</p>
-            <span class="badge">via Tailscale</span>
-          </div>
-        </div>
-        {{- else}}
-        <div class="identity empty">
-          <div class="avatar">?</div>
-          <div>
-            <p class="eyebrow">Identity passport</p>
-            <h2>No trusted identity forwarded</h2>
-            <p>Direct requests are intentionally anonymous. Tailscale adds identity at the private edge.</p>
-          </div>
-        </div>
-        {{- end}}
+        ${identityCard(identity)}
         <dl>
           <div><dt>Service</dt><dd class="status">Reachable</dd></div>
-          <div><dt>Served by</dt><dd>{{.Hostname}}</dd></div>
-          <div><dt>Mode</dt><dd>{{.Mode}}</dd></div>
-          <div><dt>Uptime</dt><dd>{{.Uptime}} seconds</dd></div>
-          <div><dt>Accepted</dt><dd>{{.Timestamp}}</dd></div>
+          <div><dt>Host</dt><dd>${escapeHtml(hostname)}</dd></div>
+          <div><dt>Runtime</dt><dd>Node ${escapeHtml(version)}</dd></div>
+          <div><dt>Uptime</dt><dd>${escapeHtml(uptimeSeconds)} seconds</dd></div>
+          <div><dt>Accepted</dt><dd>${escapeHtml(timestamp)}</dd></div>
         </dl>
       </section>
       <footer><span>GET /health</span><span>No public URL. No shared password. No stored deploy key.</span></footer>
     </article>
   </main>
 </body>
-</html>`))
+</html>`;
+}

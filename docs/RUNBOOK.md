@@ -1,16 +1,17 @@
 # Live Runbook
 
-1. Run the app on localhost and show the passing tests.
-2. Run it with `TS_HOSTNAME=workshop-app-laptop`. Open the tailnet URL; the identity card shows you. The page is reachable only by you.
-3. Show the platform contract in `.github/copilot-instructions.md`: one namespace, no cluster-scoped objects, no credentials.
-4. Run `aperture copilot` and pick a model. Point out that there is no model API key and no Copilot sign-in, only a tailnet grant to Aperture. `aperture copilot --debug` shows the variables it set.
-5. Ask Copilot to ship the app to production in your namespace, highly available, and open PR 1.
-6. While the PR is open, have Copilot run `kubectl --server=http://kb-gke-dev -n dev-kartik get all`, then `-n kube-system`. PAM refuses the second.
-7. Review PR 1: a StatefulSet, two replicas, and the pre-made ServiceAccount and ConfigMap. It has no Service, Ingress, Secret or credential.
-8. Merge. Watch `deploy.yml` join the tailnet as an ephemeral `tag:ci-deployer` over GitHub OIDC and apply through PAM.
-9. Open `https://workshop-app.<tailnet>.ts.net` as the author. "Served by" names the replica your client picked; clients stay on one healthy host.
-10. Delete the serving replica through PAM and keep reloading. Expect one failed request, then the Service answers again in about 5 to 10 seconds as the pod returns with its saved identity.
-11. Try the URL as the teammate. The connection is dropped before it reaches the app.
-12. Open PR 2 in the policy repository to add the teammate to `group:workshop-team` and to the Service grant. Show the `action: test` run.
-13. Merge PR 2. Reload as the teammate; the app appears with their identity.
-14. Revert PR 2 and show that access is gone while the app keeps running.
+1. Run the app on localhost with `npm start` and show the passing tests.
+2. Run `tailscale serve --bg 3000` and open the tailnet URL. The identity card shows you.
+3. As the teammate, open the same URL. The connection fails.
+4. Open the policy pull request that shares your devices with `group:workshop-team` (or ask the agent to). Merge it; the teammate gets in with their own identity.
+5. Show the platform contract in `.github/copilot-instructions.md` and the credential-free `./kubeconfig`.
+6. Run `aperture copilot` and pick a model. Point out that there is no model API key and no Copilot sign-in, only a tailnet grant to Aperture. `aperture copilot --debug` shows the variables it set.
+7. Ask Copilot to ship the app to your dev namespace, highly available and reachable on the tailnet, and open a pull request.
+8. While it works, have it run `KUBECONFIG=./kubeconfig kubectl get all`, then `-n kube-system`. PAM refuses the second.
+9. Review the pull request: a Deployment, a Service, and a Tailscale Ingress on the `dev-ingress` ProxyGroup. No credentials, no load balancer.
+10. Merge. Watch `deploy.yml` join the tailnet as an ephemeral `tag:ci-deployer` over GitHub OIDC and apply through PAM.
+11. Show the Aperture dashboard: the agent's requests, attributed to your identity.
+12. Open `https://workshop-app.<tailnet>.ts.net` as the author.
+13. As the teammate, try it. The connection fails.
+14. Open the policy pull request adding `group:workshop-team` to the `svc:workshop-app` grant. Merge it, and the teammate gets in.
+15. Revert it and show that access is gone while the app keeps running.
