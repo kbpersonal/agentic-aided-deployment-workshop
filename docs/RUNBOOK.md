@@ -3,7 +3,7 @@
 1. Run the app on localhost and show the passing tests.
 2. Run it with `TS_HOSTNAME=workshop-app-laptop`. Open the tailnet URL; the identity card shows you. The page is reachable only by you.
 3. Show the platform contract in `.github/copilot-instructions.md`: one namespace, no cluster-scoped objects, no credentials.
-4. Launch Copilot CLI through `aperture`. Point out that there is no model API key and no Copilot sign-in, only a tailnet grant to Aperture.
+4. Run `aperture copilot` and pick a model. Point out that there is no model API key and no Copilot sign-in, only a tailnet grant to Aperture. `aperture copilot --debug` shows the variables it set.
 5. Ask Copilot to ship the app to production in your namespace, highly available, and open PR 1.
 6. While the PR is open, have Copilot run `kubectl --server=http://kb-gke-dev -n dev-kartik get all`, then `-n kube-system`. PAM refuses the second.
 7. Review PR 1: a StatefulSet, two replicas, and the pre-made ServiceAccount and ConfigMap. It has no Service, Ingress, Secret or credential.
