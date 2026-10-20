@@ -153,6 +153,8 @@ resource "tailscale_federated_identity" "policy_apply" {
 }
 
 resource "kubernetes_namespace_v1" "dev" {
+  depends_on = [helm_release.ingress_proxygroup]
+
   metadata {
     name = local.namespace
   }
@@ -203,7 +205,7 @@ resource "border0_socket" "k8s" {
 }
 
 resource "helm_release" "tailzero" {
-  depends_on = [google_container_node_pool.this]
+  depends_on = [google_container_node_pool.this, google_compute_router_nat.this]
 
   name             = "tailzero"
   namespace        = "tailzero"
@@ -225,7 +227,7 @@ resource "tailscale_oauth_client" "operator" {
 }
 
 resource "helm_release" "tailscale_operator" {
-  depends_on = [google_container_node_pool.this]
+  depends_on = [google_container_node_pool.this, google_compute_router_nat.this]
 
   name             = "tailscale-operator"
   namespace        = "tailscale"
