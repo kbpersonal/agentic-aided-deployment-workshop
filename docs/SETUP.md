@@ -6,7 +6,8 @@ Use the root `README.md` for full commands. This checklist is for rehearsal.
 
 - [ ] HTTPS certificates enabled; Funnel not used.
 - [ ] Tailscale PAM enabled (**Settings → PAM**).
-- [ ] Aperture online and tagged `tag:aperture`; the author has a model grant.
+- [ ] Aperture online at `http://ai` and tagged `tag:aperture`; the author has a model grant.
+- [ ] `aperture --version` reports v0.1.0 or later on every attendee machine.
 - [ ] Author and teammate login names recorded and substituted in the policy.
 - [ ] No blanket `* → *` grant.
 - [ ] `tag:ci-deployer`, `tag:workshop-app`, `tag:border0-managed`, `tag:aperture` in `tagOwners`.
@@ -34,7 +35,7 @@ Use the root `README.md` for full commands. This checklist is for rehearsal.
 ## End-to-end evidence
 
 - [ ] Laptop tsnet node reachable by the author only.
-- [ ] Copilot CLI answers through Aperture.
+- [ ] `aperture copilot` starts Copilot CLI and it answers through Aperture.
 - [ ] `kubectl --server=http://kb-gke-dev -n dev-kartik get pods` works for the author.
 - [ ] Same command with `-n kube-system` is refused.
 - [ ] Deploy run succeeds from GitHub OIDC through PAM.

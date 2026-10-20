@@ -75,10 +75,18 @@ flowchart TB
 ## Prerequisites
 
 - A tailnet with HTTPS certificates and Tailscale PAM enabled (**Settings → PAM**), where you are an Admin or Owner.
-- An Aperture instance on the tailnet, tagged `tag:aperture`, for Copilot CLI.
+- An Aperture instance on the tailnet, tagged `tag:aperture`, reachable at `http://ai` (the launcher's default; any other hostname works with `--endpoint`).
 - Two Tailscale users for the before/after access demonstration.
 - A Google Cloud project with GKE enabled.
-- `go`, `terraform`, `kubectl`, `gcloud`, `gh`, `copilot` (GitHub Copilot CLI), and [`aperture`](https://github.com/tailscale/aperture-cli) installed locally.
+- `go`, `kubectl`, and `gh` installed locally. Presenters also need `terraform` and `gcloud`.
+- The [Aperture launcher](https://github.com/tailscale/aperture-cli) v0.1.0 or later, and GitHub Copilot CLI (needs Node.js):
+
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/tailscale/aperture-cli/main/install.sh | APERTURE_INSTALL_DIR=$HOME/.local/bin sh
+  npm install -g @github/copilot
+  ```
+
+  Running `aperture` with no arguments and choosing **GitHub Copilot** also offers to install Copilot CLI.
 
 ## Step 1: Act 1 on your laptop
 
@@ -142,20 +150,22 @@ These are identifiers, not secrets. A token is issued only to a workflow whose O
 
 ## Step 5: Act 2, Copilot CLI through Aperture
 
-```bash
-aperture   # pick GitHub Copilot and a model; it launches `copilot` with BYOK pointed at Aperture
-```
-
-`aperture` sets `COPILOT_PROVIDER_BASE_URL`, `COPILOT_PROVIDER_TYPE`, `COPILOT_MODEL`, and `COPILOT_OFFLINE=true`, so Copilot CLI needs no GitHub Copilot sign-in and no model API key. To launch it by hand:
+From the repository root:
 
 ```bash
-COPILOT_OFFLINE=true \
-COPILOT_PROVIDER_TYPE=anthropic \
-COPILOT_PROVIDER_BASE_URL=http://<aperture-hostname> \
-COPILOT_PROVIDER_API_KEY=not-needed \
-COPILOT_MODEL=<provider>/<model> \
-copilot
+aperture copilot
 ```
+
+The launcher connects to Aperture at `http://ai`, lists the models Aperture offers, and starts GitHub Copilot CLI pointed at the one you pick. Copilot needs no GitHub sign-in, no Copilot plan, and no model API key: the launcher runs it in offline BYOK mode, and the attendee's tailnet identity is what Aperture authorizes.
+
+To skip the menu, name the model, and the Aperture host if it isn't `ai`:
+
+```bash
+aperture copilot --model anthropic/claude-sonnet-5.5
+aperture copilot --endpoint http://<aperture-hostname> --model anthropic/claude-sonnet-5.5
+```
+
+Everything after `--` goes to `copilot` unchanged. `aperture copilot --debug` prints the environment the launcher sets.
 
 Prompt:
 
