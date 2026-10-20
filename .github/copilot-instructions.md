@@ -2,36 +2,35 @@
 
 The platform team has given this application one Kubernetes namespace, `dev-kartik`, in a private GKE cluster. Nothing outside that namespace is reachable.
 
-## What already exists in `dev-kartik`
+## Cluster access
 
-- ServiceAccount `workshop-app`. It may read and write Secrets and Events in the namespace, which is what tsnet needs to keep its state. Tailscale trusts this ServiceAccount's tokens through workload identity federation, so no auth key exists anywhere.
-- ConfigMap `tailscale` with `TS_CLIENT_ID`, `TS_ID_TOKEN_FILE`, `TS_TAG`, and `TS_SERVICE`. `TS_ID_TOKEN_FILE` is `/var/run/secrets/tailscale/token`: mount a projected `serviceAccountToken` volume there with `audience: tailscale/kb-agentic-workshop` and `path: token`.
+`./kubeconfig` in this repository points at the cluster through Tailscale PAM (`http://kb-gke-dev`). It contains no credentials: your Tailscale identity is the credential, and it only works in `dev-kartik`. Use it for every `kubectl` command:
+
+```bash
+KUBECONFIG=./kubeconfig kubectl get pods
+```
 
 ## How the app runs in production
 
-The binary in this repository is a tsnet program. When `TS_HOSTNAME` is set it joins the tailnet as its own device. When `TS_SERVICE` is also set, it advertises that Tailscale Service instead, so several replicas can serve one name.
+The app is a Node.js HTTP server. `npm start` listens on `HOST:PORT` (the container sets `0.0.0.0:3000`). `GET /health` returns `200` when it is ready. It reads the `Tailscale-User-*` headers that the Tailscale Ingress adds, so it must only be reached through that Ingress.
 
-Additional environment it reads:
-
-| Variable | Purpose |
-| --- | --- |
-| `TS_HOSTNAME` | Tailnet device name. Must be unique per replica, so use the pod name. |
-| `TS_STATE` | `kube:<secret-name>` keeps the node identity and TLS certificate in a Secret. Use one Secret per replica, named after the pod. |
-| `TS_STATE_DIR` | Writable directory for tsnet runtime files. |
-| `POD_NAME` | Required by the Secret state store. |
-| `HEALTH_ADDR` | Optional pod-network address, for example `:8080`, that serves only `GET /health` once the tailnet listener is up. Use it for readiness probes. |
+The cluster runs the Tailscale Kubernetes operator with an ingress ProxyGroup named `dev-ingress`. Exposing the app on the tailnet means creating an `Ingress` for it on that ProxyGroup. The operator turns it into the Tailscale Service `svc:<name>`, served at `https://<name>.<tailnet>.ts.net` by every ProxyGroup replica.
 
 ## Deployment rules
 
 - Put Kubernetes manifests in `k8s/`. Every object goes in namespace `dev-kartik`.
-- Do not create Namespaces, ServiceAccounts, Roles, RoleBindings, ClusterRoles, Ingresses, or `Service` objects of type `LoadBalancer` or `NodePort`. Reachability comes from the Tailscale Service, not from Kubernetes networking.
-- Use a StatefulSet or a Deployment with at least two replicas. Each workload has exactly one container.
+- Run the app as a `Deployment` with at least two replicas and exactly one container listening on port `3000`. Use `GET /health` for readiness and liveness probes.
+- Put a `ClusterIP` `Service` in front of it.
+- Expose it with an `Ingress` named after the app, with:
+  - `ingressClassName: tailscale`
+  - annotations `tailscale.com/proxy-group: dev-ingress` and `tailscale.com/tags: tag:k8s-dev`
+  - `spec.tls[0].hosts: [workshop-app]`, which sets the Tailscale Service name
+  - one rule sending `/` (`pathType: Prefix`) to the `Service` on port 80
+- Do not create Namespaces, ServiceAccounts, Roles, RoleBindings, ClusterRoles, or `Service` objects of type `LoadBalancer` or `NodePort`.
 - The deploy workflow replaces every container image with the image it built from the merged commit. Use `ghcr.io/kbpersonal/agentic-aided-deployment-workshop:latest` as a placeholder.
-- The container runs as a non-root user with a read-only root filesystem, no privilege escalation, and all capabilities dropped. Mount an `emptyDir` for `TS_STATE_DIR`.
+- The container runs as a non-root user (uid 1000), with a read-only root filesystem, no privilege escalation, and all capabilities dropped.
 - Set CPU and memory requests. The cluster is GKE Autopilot.
 
 ## Shipping
 
-Open a pull request. CI runs `go test ./...` and builds the image. After merge, `.github/workflows/deploy.yml` joins the tailnet as `tag:ci-deployer` and applies `k8s/` through the Tailscale PAM Kubernetes service `kb-gke-dev`. Do not edit the workflows.
-
-To inspect the namespace from a developer machine on the tailnet, use the PAM service directly: `kubectl --server=http://kb-gke-dev -n dev-kartik get pods`. No kubeconfig credentials are needed; Tailscale identity is the credential.
+Create a branch, commit the manifests, push, and open a pull request with `gh pr create`. CI runs `npm test`, builds the image, and checks `k8s/`. After merge, `.github/workflows/deploy.yml` joins the tailnet as `tag:ci-deployer` and applies `k8s/` through the same `./kubeconfig`. Do not edit the workflows.

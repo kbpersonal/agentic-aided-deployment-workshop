@@ -16,10 +16,6 @@ concurrency:
   group: dev-kartik
   cancel-in-progress: false
 
-env:
-  NAMESPACE: dev-kartik
-  PAM_SERVICE: kb-gke-dev
-
 jobs:
   deploy:
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
@@ -47,12 +43,8 @@ jobs:
           oauth-client-id: ${{ vars.TS_DEPLOY_CLIENT_ID }}
           audience: ${{ vars.TS_DEPLOY_AUDIENCE }}
           tags: tag:ci-deployer
-      - name: Point kubectl at the PAM Kubernetes service
-        run: |
-          kubectl config set-cluster pam --server="http://${PAM_SERVICE}"
-          kubectl config set-credentials pam
-          kubectl config set-context pam --cluster=pam --user=pam --namespace="${NAMESPACE}"
-          kubectl config use-context pam
+      - name: Use the kubeconfig DevOps handed out
+        run: echo "KUBECONFIG=$PWD/kubeconfig" >> "$GITHUB_ENV"
       - name: Apply k8s/ with the built image
         env:
           IMAGE: ${{ steps.image.outputs.ref }}
@@ -63,4 +55,4 @@ jobs:
           for w in $(kubectl get statefulset,deployment -o name); do
             kubectl rollout status "$w" --timeout=5m
           done
-          kubectl get pods -o wide
+          kubectl get pods,ingress -o wide

@@ -1,14 +1,12 @@
 apiVersion: apps/v1
-kind: StatefulSet
+kind: Deployment
 metadata:
   name: workshop-app
   namespace: dev-kartik
   labels:
     app.kubernetes.io/name: workshop-app
 spec:
-  serviceName: workshop-app
   replicas: 2
-  podManagementPolicy: Parallel
   selector:
     matchLabels:
       app.kubernetes.io/name: workshop-app
@@ -17,37 +15,25 @@ spec:
       labels:
         app.kubernetes.io/name: workshop-app
     spec:
-      serviceAccountName: workshop-app
       securityContext:
         runAsNonRoot: true
+        runAsUser: 1000
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: app
           image: ghcr.io/kbpersonal/agentic-aided-deployment-workshop:latest
-          envFrom:
-            - configMapRef:
-                name: tailscale
-          env:
-            - name: POD_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
-            - name: TS_HOSTNAME
-              value: $(POD_NAME)
-            - name: TS_STATE
-              value: kube:$(POD_NAME)
-            - name: TS_STATE_DIR
-              value: /var/lib/tsnet
-            - name: HEALTH_ADDR
-              value: ":8080"
           ports:
-            - name: health
-              containerPort: 8080
+            - name: http
+              containerPort: 3000
           readinessProbe:
             httpGet:
               path: /health
-              port: health
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
           resources:
             requests:
               cpu: 100m
@@ -57,19 +43,40 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
-          volumeMounts:
-            - name: tsnet
-              mountPath: /var/lib/tsnet
-            - name: tailscale-token
-              mountPath: /var/run/secrets/tailscale
-              readOnly: true
-      volumes:
-        - name: tsnet
-          emptyDir: {}
-        - name: tailscale-token
-          projected:
-            sources:
-              - serviceAccountToken:
-                  audience: tailscale/kb-agentic-workshop
-                  expirationSeconds: 3600
-                  path: token
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: workshop-app
+  namespace: dev-kartik
+spec:
+  selector:
+    app.kubernetes.io/name: workshop-app
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: workshop-app
+  namespace: dev-kartik
+  annotations:
+    tailscale.com/proxy-group: dev-ingress
+    tailscale.com/tags: tag:k8s-dev
+spec:
+  ingressClassName: tailscale
+  tls:
+    - hosts:
+        - workshop-app
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: workshop-app
+                port:
+                  number: 80

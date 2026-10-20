@@ -5,39 +5,38 @@ Use the root `README.md` for full commands. This checklist is for rehearsal.
 ## Tailnet
 
 - [ ] HTTPS certificates enabled; Funnel not used.
-- [ ] Tailscale PAM enabled (**Settings → PAM**).
+- [ ] Tailscale PAM enabled (**Settings → PAM**) and a Member service-account token for Terraform.
 - [ ] Aperture online at `http://ai` and tagged `tag:aperture`; the author has a model grant.
-- [ ] `aperture --version` reports v0.1.0 or later on every attendee machine.
 - [ ] Author and teammate login names recorded and substituted in the policy.
 - [ ] No blanket `* → *` grant.
-- [ ] `tag:ci-deployer`, `tag:workshop-app`, `tag:border0-managed`, `tag:aperture` in `tagOwners`.
-- [ ] `autoApprovers.services` maps `svc:workshop-app` to `tag:workshop-app`.
-- [ ] The `cap/pam` grant for `svc:kb-gke-dev` lists only `dev-kartik` in `namespaces`.
-- [ ] Policy tests pass: author accepted on `svc:workshop-app:443`, `tag:ci-deployer` denied.
+- [ ] `tag:k8s-operator` and `tag:ci-deployer` in `tagOwners`, `tag:k8s-dev` owned by `tag:k8s-operator`.
+- [ ] `autoApprovers.services` maps `tag:k8s-dev` to `tag:k8s-dev`.
+- [ ] The `cap/pam` grant for `svc:kb-gke-dev` lists only `dev-kartik` in `namespaces`, with `resource_names: ["*"]`.
+- [ ] Policy tests pass.
 
 ## Infrastructure
 
 - [ ] `terraform apply` completed; `terraform plan` shows no changes.
-- [ ] GKE IP control-plane endpoint disabled.
-- [ ] Connector `kb-agentic-workshop` online (created by Terraform).
-- [ ] PAM service `kb-gke-dev` exists with impersonation on (created by Terraform).
-- [ ] `svc:workshop-app` exists with port `tcp:443`.
+- [ ] Operator and both `dev-ingress` proxies online.
+- [ ] Connector `kb-agentic-workshop` online and PAM service `kb-gke-dev` active.
 
 ## GitHub
 
 - [ ] App repository variables: `TS_DEPLOY_CLIENT_ID`, `TS_DEPLOY_AUDIENCE`.
 - [ ] Policy repository variables: `TS_TAILNET` and both policy trust credential IDs and audiences.
-- [ ] Policy repository `tailnet-policy` environment exists, ideally with a required reviewer.
-- [ ] No Tailscale, cloud or model secret is stored in either repository.
-- [ ] GHCR package public.
-- [ ] Branch protection and CODEOWNERS on both repositories.
+- [ ] No Tailscale, cloud, or model secret stored in either repository.
+- [ ] `main` of the template has no `k8s/`.
+
+## Attendee machines
+
+- [ ] `aperture --version` reports v0.1.0 or later; `copilot` installed; `gh auth status` succeeds.
 
 ## End-to-end evidence
 
-- [ ] Laptop tsnet node reachable by the author only.
-- [ ] `aperture copilot` starts Copilot CLI and it answers through Aperture.
-- [ ] `kubectl --server=http://kb-gke-dev -n dev-kartik get pods` works for the author.
-- [ ] Same command with `-n kube-system` is refused.
+- [ ] Laptop Serve URL reachable by the author only, then by the teammate after the policy pull request.
+- [ ] `aperture copilot` starts Copilot CLI and it answers through Aperture, attributed to the author.
+- [ ] The agent opens the pull request itself.
+- [ ] `KUBECONFIG=./kubeconfig kubectl get pods` works; `-n kube-system` is refused.
 - [ ] Deploy run succeeds from GitHub OIDC through PAM.
-- [ ] Two Ready pods; the Service answers with either replica.
-- [ ] Teammate denied before PR 2, allowed after, denied again after the revert.
+- [ ] Ingress has an address; the Service answers with the author's identity.
+- [ ] Teammate denied before the access pull request, allowed after, denied again after the revert.
