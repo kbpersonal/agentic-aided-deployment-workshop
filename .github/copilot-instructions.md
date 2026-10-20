@@ -29,7 +29,7 @@ The cluster runs the Tailscale Kubernetes operator with an ingress ProxyGroup na
 - Do not create Namespaces, ServiceAccounts, Roles, RoleBindings, ClusterRoles, or `Service` objects of type `LoadBalancer` or `NodePort`.
 - The deploy workflow replaces every container image with the image it built from the merged commit. Use `ghcr.io/kbpersonal/agentic-aided-deployment-workshop:latest` as a placeholder.
 - The container runs as a non-root user (uid 1000), with a read-only root filesystem, no privilege escalation, and all capabilities dropped.
-- Set CPU and memory requests. The cluster is GKE Autopilot.
+- Set CPU and memory requests.
 
 ## Shipping
 
