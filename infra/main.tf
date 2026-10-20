@@ -78,8 +78,10 @@ resource "google_container_cluster" "this" {
   location            = var.gcp_region
   network             = google_compute_network.this.id
   subnetwork          = google_compute_subnetwork.this.id
-  enable_autopilot    = true
   deletion_protection = false
+
+  remove_default_node_pool = true
+  initial_node_count       = 1
 
   ip_allocation_policy {}
 
@@ -94,6 +96,19 @@ resource "google_container_cluster" "this" {
     dns_endpoint_config {
       allow_external_traffic = true
     }
+  }
+}
+
+resource "google_container_node_pool" "this" {
+  name           = "${local.name}-pool"
+  cluster        = google_container_cluster.this.id
+  node_locations = ["${var.gcp_region}-a", "${var.gcp_region}-b"]
+  node_count     = 1
+
+  node_config {
+    machine_type = "e2-standard-2"
+    disk_size_gb = 50
+    oauth_scopes = ["https://www.googleapis.com/auth/cloud-platform"]
   }
 }
 
@@ -188,6 +203,8 @@ resource "border0_socket" "k8s" {
 }
 
 resource "helm_release" "tailzero" {
+  depends_on = [google_container_node_pool.this]
+
   name             = "tailzero"
   namespace        = "tailzero"
   create_namespace = true
@@ -208,6 +225,8 @@ resource "tailscale_oauth_client" "operator" {
 }
 
 resource "helm_release" "tailscale_operator" {
+  depends_on = [google_container_node_pool.this]
+
   name             = "tailscale-operator"
   namespace        = "tailscale"
   create_namespace = true

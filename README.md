@@ -36,7 +36,7 @@ flowchart TB
   runner["Ephemeral runner<br/>tag:ci-deployer"]
   pam["svc:kb-gke-dev<br/>Tailscale PAM Kubernetes service<br/>cap/pam: namespace dev-kartik only"]
 
-  subgraph gke["Private GKE Autopilot cluster"]
+  subgraph gke["Private GKE Standard cluster"]
     subgraph ns0["namespace tailzero"]
       connector["PAM connector<br/>impersonates the caller"]
     end
@@ -128,7 +128,7 @@ terraform apply
 
 The first apply creates the cluster so the Kubernetes and Helm providers have an endpoint. The second creates:
 
-- **Network:** a VPC with Cloud NAT and a private GKE Autopilot cluster.
+- **Network:** a VPC with Cloud NAT and a private GKE Standard cluster with two nodes. The Tailscale operator is not supported on platforms that forbid privileged pods, such as GKE Autopilot.
 - **Tailscale operator:** an OAuth client tagged `tag:k8s-operator`, the operator Helm release, and the `dev-ingress` ProxyGroup with two `tag:k8s-dev` proxies.
 - **Tailscale PAM:** connector `kb-agentic-workshop`, its token, and the Kubernetes service `kb-gke-dev` with impersonation on. The connector exchanges its token for its own Tailscale auth key.
 - **Trust credentials:** deploy, policy test, and policy apply, all GitHub OIDC.
