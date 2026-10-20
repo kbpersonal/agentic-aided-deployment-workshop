@@ -211,7 +211,7 @@ A container package pushed from a public repository's workflow inherits public v
 KUBECONFIG=./kubeconfig kubectl get ingress workshop-app
 ```
 
-When `ADDRESS` shows `workshop-app.<tailnet>.ts.net`, open `https://workshop-app.<tailnet>.ts.net`. The operator created the Tailscale Service `svc:workshop-app`, and both `dev-ingress` proxies advertise it. The identity card shows you again, this time added by the operator's ingress proxy.
+When `ADDRESS` shows `workshop-app.<tailnet>.ts.net`, open `https://workshop-app.<tailnet>.ts.net`. The operator created the Tailscale Service `svc:workshop-app`, and both `dev-ingress` proxies advertise it. The identity card shows you again, this time added by the operator's ingress proxy. Delete one of the app pods through `./kubeconfig` and keep reloading: the `Service` sends every request to the remaining replica.
 
 ## Step 6: Team access to the dev cluster
 
@@ -239,6 +239,10 @@ This removes the cluster, the operator, the PAM connector and service, and the t
 - `KUBECONFIG=./kubeconfig kubectl describe ingress workshop-app` shows the operator's events.
 - The `tailscale.com/proxy-group` annotation must be `dev-ingress`, and `ingressClassName` must be `tailscale`.
 - The policy's `autoApprovers.services` must map `tag:k8s-dev` to `tag:k8s-dev`, and `tag:k8s-dev` must be owned by `tag:k8s-operator`.
+
+### The laptop's Serve URL fails with a TLS handshake error
+
+Open it from a different device. On one tested macOS client build, the laptop could not reach its own Serve URL over HTTPS (`tls alert handshake failure`), while other devices on the tailnet reached it normally.
 
 ### The Service resolves but connections time out
 
