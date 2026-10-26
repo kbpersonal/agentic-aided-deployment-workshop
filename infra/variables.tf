@@ -1,3 +1,9 @@
+variable "name" {
+  type        = string
+  default     = "agentic-workshop"
+  description = "Prefix for the GKE cluster, network, and PAM connector. Use a unique prefix in a shared GCP project."
+}
+
 variable "gcp_project" {
   type = string
 }
@@ -15,11 +21,6 @@ variable "tailnet" {
 variable "github_repo" {
   type        = string
   description = "owner/name of the application repository."
-}
-
-variable "developer" {
-  type        = string
-  description = "Short name for the developer; the namespace is dev-<developer>."
 }
 
 variable "developer_login" {

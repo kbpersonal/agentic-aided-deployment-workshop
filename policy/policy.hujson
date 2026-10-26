@@ -33,7 +33,7 @@
 		},
 		{
 			"src": ["AUTHOR_LOGIN", "tag:ci-deployer"],
-			"dst": ["svc:kb-gke-dev"],
+			"dst": ["svc:gke-dev"],
 			"ip":  ["*"],
 			"app": {
 				"tailscale.com/cap/pam": [{
@@ -42,7 +42,7 @@
 						"kubernetes": {
 							"rules": [{
 								"api_groups": ["*"],
-								"namespaces": ["dev-kartik"],
+								"namespaces": ["dev"],
 								"resources":      ["*"],
 								"resource_names": ["*"],
 								"verbs":          ["*"],
