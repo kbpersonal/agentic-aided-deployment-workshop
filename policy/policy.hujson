@@ -1,10 +1,4 @@
 {
-	"groups": {
-		"group:workshop-team": [
-			"TEAMMATE_LOGIN",
-		],
-	},
-
 	"tagOwners": {
 		"tag:ci-deployer":     ["autogroup:admin"],
 		"tag:k8s-operator":    ["autogroup:admin"],
@@ -27,12 +21,12 @@
 			"ip":  ["*"],
 		},
 		{
-			"src": ["AUTHOR_LOGIN"],
+			"src": ["autogroup:admin"],
 			"dst": ["svc:workshop-app", "tag:k8s-dev"],
 			"ip":  ["tcp:443"],
 		},
 		{
-			"src": ["AUTHOR_LOGIN", "tag:ci-deployer"],
+			"src": ["autogroup:admin", "tag:ci-deployer"],
 			"dst": ["svc:gke-dev"],
 			"ip":  ["*"],
 			"app": {
@@ -41,8 +35,8 @@
 					"permissions": {
 						"kubernetes": {
 							"rules": [{
-								"api_groups": ["*"],
-								"namespaces": ["dev"],
+								"api_groups":     ["*"],
+								"namespaces":     ["dev"],
 								"resources":      ["*"],
 								"resource_names": ["*"],
 								"verbs":          ["*"],
@@ -53,7 +47,7 @@
 			},
 		},
 		{
-			"src": ["AUTHOR_LOGIN"],
+			"src": ["autogroup:admin"],
 			"dst": ["tag:aperture"],
 			"ip":  ["tcp:80"],
 			"app": {
@@ -66,14 +60,6 @@
 	],
 
 	"tests": [
-		{
-			"src":    "AUTHOR_LOGIN",
-			"accept": ["svc:workshop-app:443"],
-		},
-		{
-			"src":  "TEAMMATE_LOGIN",
-			"deny": ["svc:workshop-app:443"],
-		},
 		{
 			"src":  "tag:ci-deployer",
 			"deny": ["svc:workshop-app:443"],

@@ -41,7 +41,7 @@ jobs:
         uses: tailscale/github-action@v4
         with:
           oauth-client-id: ${{ vars.TS_DEPLOY_CLIENT_ID }}
-          audience: ${{ vars.TS_DEPLOY_AUDIENCE }}
+          audience: ${{ github.repository }}/deploy
           tags: tag:ci-deployer
       - name: Use the kubeconfig DevOps handed out
         run: echo "KUBECONFIG=$PWD/kubeconfig" >> "$GITHUB_ENV"

@@ -33,4 +33,6 @@ The cluster runs the Tailscale Kubernetes operator with an ingress ProxyGroup na
 
 ## Shipping
 
-Create a branch, commit the manifests, push, and open a pull request with `gh pr create`. CI runs `npm test`, builds the image, and checks `k8s/`. After merge, `.github/workflows/deploy.yml` joins the tailnet as `tag:ci-deployer` and applies `k8s/` through the same `./kubeconfig`. Do not edit the workflows.
+Create a branch, commit the manifests, and `git push -u origin <branch>`. The push prints a link to open the pull request; give that link to the developer, who opens and merges it. Do not merge anything yourself.
+
+CI runs `npm test`, builds the image, and checks `k8s/`. After merge, `.github/workflows/deploy.yml` joins the tailnet as `tag:ci-deployer` and applies `k8s/` through the same `./kubeconfig`. Do not edit the workflows.

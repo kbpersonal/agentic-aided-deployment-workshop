@@ -30,9 +30,7 @@ provider "google" {
   region  = var.gcp_region
 }
 
-provider "tailscale" {
-  tailnet = var.tailnet
-}
+provider "tailscale" {}
 
 provider "border0" {}
 
@@ -121,34 +119,6 @@ provider "helm" {
   kubernetes = {
     host  = "https://${google_container_cluster.this.control_plane_endpoints_config[0].dns_endpoint_config[0].endpoint}"
     token = data.google_client_config.this.access_token
-  }
-}
-
-resource "tailscale_federated_identity" "deploy" {
-  description = "GitHub Actions deploy workflow"
-  issuer      = "https://token.actions.githubusercontent.com"
-  subject     = "${var.github_repo_subject_prefix}:ref:refs/heads/main"
-  scopes      = ["auth_keys"]
-  tags        = ["tag:ci-deployer"]
-  custom_claim_rules = {
-    workflow_ref = "${var.github_repo}/.github/workflows/deploy.yml@refs/heads/main"
-  }
-}
-
-resource "tailscale_federated_identity" "policy_test" {
-  description = "Policy repository pull request tests"
-  issuer      = "https://token.actions.githubusercontent.com"
-  subject     = "${var.policy_repo_subject_prefix}:pull_request"
-  scopes      = ["policy_file:read"]
-}
-
-resource "tailscale_federated_identity" "policy_apply" {
-  description = "Policy repository apply from main"
-  issuer      = "https://token.actions.githubusercontent.com"
-  subject     = "${var.policy_repo_subject_prefix}:environment:tailnet-policy"
-  scopes      = ["policy_file"]
-  custom_claim_rules = {
-    ref = "refs/heads/main"
   }
 }
 
