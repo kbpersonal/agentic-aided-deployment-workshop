@@ -7,11 +7,12 @@ Nobody in this story holds a Kubernetes credential, a cloud credential, a Tailsc
 ## The story
 
 1. **Localhost.** `npm start`. The app runs on the developer's laptop.
-2. **Share it.** `tailscale serve --bg 3000` publishes it at `https://<laptop>.<tailnet>.ts.net`. A pull request to `policy/policy.hujson` lets the team in.
-3. **Ship it with an agent.** `aperture copilot` starts Copilot CLI with Aperture as its model gateway, so every model call is attributed to the developer's tailnet identity. The agent reads the platform contract, writes `k8s/`, checks the namespace through PAM, and pushes a branch.
-4. **Deploy.** Merging the pull request runs `deploy.yml`. The runner joins the tailnet as an ephemeral `tag:ci-deployer` with GitHub OIDC and applies `k8s/` through the Tailscale PAM Kubernetes service `gke-dev`, which only allows namespace `dev`.
-5. **On the tailnet.** The agent's `Ingress` is served by the operator's `dev-ingress` ProxyGroup as the Tailscale Service `svc:workshop-app`, at `https://workshop-app.<tailnet>.ts.net`, from two proxy replicas.
-6. **Team access.** A second policy pull request grants the team the dev-cluster Service. Reverting it revokes access.
+2. **Share it.** `aperture copilot` starts Copilot CLI with Aperture as its model gateway, so every model call is attributed to the developer's tailnet identity. Asked to share the app, Copilot runs `tailscale serve --bg 3000`, which publishes it at `https://<laptop>.<tailnet>.ts.net` as the developer's own device. Nobody else can open it yet.
+3. **Let the team in.** A pull request to `policy/policy.hujson` adds the grant; merging applies it.
+4. **Ship it with an agent.** The agent reads the platform contract, writes `k8s/`, checks the namespace through PAM, and pushes a branch.
+5. **Deploy.** Merging the pull request runs `deploy.yml`. The runner joins the tailnet as an ephemeral `tag:ci-deployer` with GitHub OIDC and applies `k8s/` through the Tailscale PAM Kubernetes service `gke-dev`, which only allows namespace `dev`.
+6. **On the tailnet.** The agent's `Ingress` is served by the operator's `dev-ingress` ProxyGroup as the Tailscale Service `svc:workshop-app`, at `https://workshop-app.<tailnet>.ts.net`, from two proxy replicas.
+7. **Team access.** A second policy pull request grants the team the dev-cluster Service. Reverting it revokes access.
 
 The app is plain Node.js and contains no Tailscale code. Reachability, identity, and access all come from the tailnet.
 
@@ -178,18 +179,36 @@ curl http://127.0.0.1:3000/health
 
 You should see `{"status":"ok",...}`.
 
-### Step 2: Share it with tailscale serve
+### Step 2: Share it with the team
 
-In another terminal:
+Leave the app running. In another terminal, from the repository root, start GitHub Copilot CLI through Aperture:
 
 ```bash
-tailscale serve --bg 3000
-tailscale serve status
+aperture copilot
 ```
 
-Open the `https://<laptop>.<tailnet>.ts.net` address it prints, from another of your devices. The identity card shows your name: Serve adds the `Tailscale-User-*` headers. The second user can't connect.
+The launcher connects to Aperture at `http://ai`, lists the models Aperture offers, and starts Copilot CLI with the one you pick. Copilot needs no GitHub sign-in, no Copilot plan, and no model key: Aperture authorizes your tailnet identity, and every request appears in the Aperture dashboard under your name. To skip the menu, pass the model as `<provider>/<model>`, exactly as the menu lists it, for example `vercel/anthropic/claude-haiku-4.5`:
 
-To let the team in, open a pull request that adds this grant to `policy/policy.hujson`:
+```bash
+aperture copilot --model <provider>/<model>
+aperture copilot --endpoint http://<aperture-hostname> --model <provider>/<model>
+```
+
+Everything after `--` goes to `copilot` unchanged. `aperture copilot --debug` prints the environment the launcher sets.
+
+Prompt:
+
+> My app is running on localhost:3000. Share it with my team on the tailnet using tailscale serve in the background, and give me the URL.
+
+Copilot asks before each command it runs. It runs `tailscale serve --bg 3000` and prints `https://<laptop>.<tailnet>.ts.net`. Serve publishes the app as your device, under your identity: no tag, no auth key, and no change to the policy.
+
+Open that URL from another of your devices. The identity card shows your name, because Serve adds the `Tailscale-User-*` headers to every request.
+
+Now open it as the second user. The connection fails: the policy has no grant that lets another user reach your devices, so Tailscale drops the traffic before it reaches the laptop.
+
+### Step 3: Let the team in
+
+Access changes go through a pull request. Add this grant to `policy/policy.hujson`:
 
 ```diff
  "grants": [
@@ -200,24 +219,11 @@ To let the team in, open a pull request that adds this grant to `policy/policy.h
 +  },
 ```
 
-The pull request runs the policy test; merging applies it, and the second user gets in with their own identity.
+It lets every member of the tailnet reach HTTPS on the devices of its Admins, the developer role in this policy. The pull request runs the policy test; merging applies it. The second user reloads the URL and gets in, and the identity card shows their name, not yours.
 
-### Step 3: Ship it with an agent
+### Step 4: Ship it with an agent
 
-From the repository root:
-
-```bash
-aperture copilot
-```
-
-The launcher connects to Aperture at `http://ai`, lists the models Aperture offers, and starts Copilot CLI pointed at the one you pick. Copilot needs no GitHub sign-in, no Copilot plan, and no model key. Every request appears in the Aperture dashboard under your tailnet identity. To skip the menu:
-
-```bash
-aperture copilot --model anthropic/claude-sonnet-5.5
-aperture copilot --endpoint http://<aperture-hostname> --model anthropic/claude-sonnet-5.5
-```
-
-Everything after `--` goes to `copilot` unchanged. `aperture copilot --debug` prints the environment the launcher sets.
+In the same Copilot session:
 
 Prompt:
 
@@ -225,7 +231,7 @@ Prompt:
 
 The agent reads `.github/copilot-instructions.md`, writes a `Deployment`, `Service`, and Tailscale `Ingress` like `docs/reference/workshop-app.yaml`, commits them on a branch, and pushes it. It can check the namespace with `KUBECONFIG=./kubeconfig kubectl get all`. Ask it to try `-n kube-system`; PAM refuses.
 
-### Step 4: Deploy
+### Step 5: Deploy
 
 Open the pull request from the link the push printed, and merge it after CI passes. CI runs the tests, builds the image, and checks `k8s/`. `deploy.yml` then:
 
@@ -236,7 +242,7 @@ Open the pull request from the link the push printed, and merge it after CI pass
 
 The run's last step lists two `workshop-app` pods `Running` and the `workshop-app` Ingress.
 
-### Step 5: The app on the tailnet
+### Step 6: The app on the tailnet
 
 ```bash
 KUBECONFIG=./kubeconfig kubectl get ingress workshop-app
@@ -244,7 +250,7 @@ KUBECONFIG=./kubeconfig kubectl get ingress workshop-app
 
 When `ADDRESS` shows `workshop-app.<tailnet>.ts.net`, open `https://workshop-app.<tailnet>.ts.net`. The operator created the Tailscale Service `svc:workshop-app`, and both `dev-ingress` proxies advertise it. The identity card shows you again, this time added by the operator's ingress proxy. Delete one of the app pods through `./kubeconfig` and keep reloading: the `Service` sends every request to the remaining replica.
 
-### Step 6: Team access to the dev cluster
+### Step 7: Team access to the dev cluster
 
 Before the change, the second user's connection to `https://workshop-app.<tailnet>.ts.net` fails. Tailscale drops the traffic before the app sees it, so there is no HTTP 403.
 
