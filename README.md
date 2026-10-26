@@ -292,10 +292,6 @@ This removes the cluster, the operator and its proxies, the PAM connector and se
 
 The baseline policy was applied after the operator started. Apply it; the operator retries on its own.
 
-### The laptop's Serve URL fails with a TLS handshake error
-
-Open it from a different device. On one tested macOS client build, the laptop could not reach its own Serve URL over HTTPS (`tls alert handshake failure`), while other devices on the tailnet reached it normally.
-
 ### The Service resolves but connections time out
 
 On some tailnets clients only receive a Service's hosts when a grant also names the hosts' tag. The grant therefore lists both `svc:workshop-app` and `tag:k8s-dev` on `tcp:443`.
