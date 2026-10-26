@@ -18,38 +18,46 @@ concurrency:
 
 jobs:
   deploy:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    if: vars.TS_DEPLOY_CLIENT_ID != '' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - id: manifests
+        run: |
+          if ls k8s/*.yaml >/dev/null 2>&1; then echo "found=true" >> "$GITHUB_OUTPUT"; else echo "::notice::No k8s/ manifests yet; nothing to deploy."; fi
       - id: image
+        if: steps.manifests.outputs.found == 'true'
         run: echo "ref=ghcr.io/${GITHUB_REPOSITORY,,}:${{ github.event.workflow_run.head_sha || github.sha }}" >> "$GITHUB_OUTPUT"
       - uses: docker/login-action@v4
+        if: steps.manifests.outputs.found == 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@v7
+        if: steps.manifests.outputs.found == 'true'
         with:
           context: .
           push: true
           tags: ${{ steps.image.outputs.ref }}
       - name: Join the tailnet as tag:ci-deployer
+        if: steps.manifests.outputs.found == 'true'
         uses: tailscale/github-action@v4
         with:
           oauth-client-id: ${{ vars.TS_DEPLOY_CLIENT_ID }}
           audience: ${{ github.repository }}/deploy
           tags: tag:ci-deployer
       - name: Use the kubeconfig DevOps handed out
+        if: steps.manifests.outputs.found == 'true'
         run: echo "KUBECONFIG=$PWD/kubeconfig" >> "$GITHUB_ENV"
       - name: Apply k8s/ with the built image
+        if: steps.manifests.outputs.found == 'true'
         env:
           IMAGE: ${{ steps.image.outputs.ref }}
         run: |
-          ls k8s/*.yaml >/dev/null 2>&1 || { echo "::notice::No k8s/ manifests yet; nothing to deploy."; exit 0; }
           yq '(select(.kind == "StatefulSet" or .kind == "Deployment") | .spec.template.spec.containers[].image) = strenv(IMAGE)' k8s/*.yaml > rendered.yaml
           kubectl apply --validate=false -f rendered.yaml
           for w in $(kubectl get statefulset,deployment -o name); do
