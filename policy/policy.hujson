@@ -1,0 +1,69 @@
+{
+	"tagOwners": {
+		"tag:terraform":       ["autogroup:admin"],
+		"tag:ci-deployer":     ["autogroup:admin", "tag:terraform"],
+		"tag:k8s-operator":    ["autogroup:admin", "tag:terraform"],
+		"tag:k8s-dev":         ["tag:k8s-operator"],
+		"tag:border0-managed": ["autogroup:admin"],
+		"tag:aperture":        ["autogroup:admin"],
+	},
+
+	"autoApprovers": {
+		"services": {
+			"tag:k8s-dev":         ["tag:k8s-dev"],
+			"tag:border0-managed": ["tag:border0-managed"],
+		},
+	},
+
+	"grants": [
+		{
+			"src": ["autogroup:member"],
+			"dst": ["autogroup:self"],
+			"ip":  ["*"],
+		},
+		{
+			"src": ["autogroup:admin"],
+			"dst": ["svc:workshop-app", "tag:k8s-dev"],
+			"ip":  ["tcp:443"],
+		},
+		{
+			"src": ["autogroup:admin", "tag:ci-deployer"],
+			"dst": ["svc:gke-dev"],
+			"ip":  ["*"],
+			"app": {
+				"tailscale.com/cap/pam": [{
+					"version": "v1",
+					"permissions": {
+						"kubernetes": {
+							"rules": [{
+								"api_groups":     ["*"],
+								"namespaces":     ["dev"],
+								"resources":      ["*"],
+								"resource_names": ["*"],
+								"verbs":          ["*"],
+							}],
+						},
+					},
+				}],
+			},
+		},
+		{
+			"src": ["autogroup:admin"],
+			"dst": ["tag:aperture"],
+			"ip":  ["tcp:80", "tcp:443"],
+			"app": {
+				"tailscale.com/cap/aperture": [
+					{"role": "user"},
+					{"models": "**"},
+				],
+			},
+		},
+	],
+
+	"tests": [
+		{
+			"src":  "tag:ci-deployer",
+			"deny": ["svc:workshop-app:443"],
+		},
+	],
+}
