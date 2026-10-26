@@ -9,7 +9,9 @@ terraform {
   }
 }
 
-provider "tailscale" {}
+provider "tailscale" {
+  api_key = var.tailscale_api_key
+}
 
 locals {
   issuer = "https://token.actions.githubusercontent.com"

@@ -27,3 +27,15 @@ variable "tailscale_operator_version" {
   type    = string
   default = "1.104.1"
 }
+
+variable "tailscale_api_key" {
+  type        = string
+  sensitive   = true
+  description = "Tailscale API access token, from Settings → Keys."
+}
+
+variable "border0_token" {
+  type        = string
+  sensitive   = true
+  description = "Tailscale PAM service-account token (Member role), from Settings → PAM → Service accounts."
+}

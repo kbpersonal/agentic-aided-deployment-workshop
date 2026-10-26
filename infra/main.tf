@@ -30,9 +30,13 @@ provider "google" {
   region  = var.gcp_region
 }
 
-provider "tailscale" {}
+provider "tailscale" {
+  api_key = var.tailscale_api_key
+}
 
-provider "border0" {}
+provider "border0" {
+  token = var.border0_token
+}
 
 locals {
   name      = var.name
