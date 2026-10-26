@@ -1,11 +1,4 @@
-gcp_project = "your-gcp-project"
-gcp_region  = "us-central1"
-name        = "agentic-workshop"
-
-tailnet         = "your-tailnet-id"
+gcp_project     = "your-gcp-project"
+gcp_region      = "us-central1"
+name            = "agentic-workshop"
 developer_login = "you@github"
-
-github_repo                = "your-github-user/agentic-aided-deployment-workshop"
-github_repo_subject_prefix = "repo:your-github-user@OWNER_ID/agentic-aided-deployment-workshop@REPO_ID"
-policy_repo                = "your-github-user/agentic-aided-deployment-policy"
-policy_repo_subject_prefix = "repo:your-github-user@OWNER_ID/agentic-aided-deployment-policy@REPO_ID"

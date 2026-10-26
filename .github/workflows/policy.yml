@@ -2,10 +2,10 @@ name: Tailnet policy
 
 on:
   pull_request:
-    paths: [policy.hujson]
+    paths: [policy/policy.hujson]
   push:
     branches: [main]
-    paths: [policy.hujson]
+    paths: [policy/policy.hujson]
   workflow_dispatch:
 
 permissions:
@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   test:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && vars.TS_POLICY_TEST_CLIENT_ID != ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -22,15 +22,15 @@ jobs:
           persist-credentials: false
       - uses: tailscale/gitops-acl-action@v1
         with:
-          tailnet: ${{ vars.TS_TAILNET }}
+          tailnet: "-"
           oauth-client-id: ${{ vars.TS_POLICY_TEST_CLIENT_ID }}
-          audience: ${{ vars.TS_POLICY_TEST_AUDIENCE }}
+          audience: ${{ github.repository }}/policy-test
+          policy-file: policy/policy.hujson
           action: test
 
   apply:
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.TS_POLICY_APPLY_CLIENT_ID != ''
     runs-on: ubuntu-latest
-    environment: tailnet-policy
     concurrency:
       group: tailnet-policy
       cancel-in-progress: false
@@ -40,7 +40,8 @@ jobs:
           persist-credentials: false
       - uses: tailscale/gitops-acl-action@v1
         with:
-          tailnet: ${{ vars.TS_TAILNET }}
+          tailnet: "-"
           oauth-client-id: ${{ vars.TS_POLICY_APPLY_CLIENT_ID }}
-          audience: ${{ vars.TS_POLICY_APPLY_AUDIENCE }}
+          audience: ${{ github.repository }}/policy-apply
+          policy-file: policy/policy.hujson
           action: apply

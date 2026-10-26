@@ -1,15 +1,15 @@
 # Agentic-Aided Deployment Beyond Localhost
 
-A developer has a small Node.js app that works on their laptop. They know nothing about Kubernetes. The platform team has given them one namespace in a private GKE cluster and a kubeconfig that reaches it only through Tailscale. Their agent, GitHub Copilot CLI launched through the Aperture CLI, writes the manifests and opens the pull request. GitHub Actions deploys it through Tailscale PAM, and the Tailscale Kubernetes operator puts it on the tailnet.
+A developer has a small Node.js app that works on their laptop. They know nothing about Kubernetes. The platform team has given them one namespace in a private GKE cluster and a kubeconfig that reaches it only through Tailscale. Their agent, GitHub Copilot CLI launched through the Aperture CLI, writes the manifests and pushes them for review. GitHub Actions deploys them through Tailscale PAM, and the Tailscale Kubernetes operator puts the app on the tailnet.
 
 Nobody in this story holds a Kubernetes credential, a cloud credential, a Tailscale auth key, or a model API key. Tailscale identity is the credential at every step, and every access change is a pull request.
 
 ## The story
 
 1. **Localhost.** `npm start`. The app runs on the developer's laptop.
-2. **Share it.** `tailscale serve --bg 3000` publishes it at `https://<laptop>.<tailnet>.ts.net`. A pull request in the policy repository lets the team in.
-3. **Ship it with an agent.** `aperture copilot` starts Copilot CLI with Aperture as its model gateway, so every model call is attributed to the developer's tailnet identity. The agent reads the platform contract, writes `k8s/`, checks the namespace through PAM, and opens a pull request.
-4. **Deploy.** Merging runs `deploy.yml`. The runner joins the tailnet as an ephemeral `tag:ci-deployer` with GitHub OIDC and applies `k8s/` through the Tailscale PAM Kubernetes service `gke-dev`, which only allows namespace `dev`.
+2. **Share it.** `tailscale serve --bg 3000` publishes it at `https://<laptop>.<tailnet>.ts.net`. A pull request to `policy/policy.hujson` lets the team in.
+3. **Ship it with an agent.** `aperture copilot` starts Copilot CLI with Aperture as its model gateway, so every model call is attributed to the developer's tailnet identity. The agent reads the platform contract, writes `k8s/`, checks the namespace through PAM, and pushes a branch.
+4. **Deploy.** Merging the pull request runs `deploy.yml`. The runner joins the tailnet as an ephemeral `tag:ci-deployer` with GitHub OIDC and applies `k8s/` through the Tailscale PAM Kubernetes service `gke-dev`, which only allows namespace `dev`.
 5. **On the tailnet.** The agent's `Ingress` is served by the operator's `dev-ingress` ProxyGroup as the Tailscale Service `svc:workshop-app`, at `https://workshop-app.<tailnet>.ts.net`, from two proxy replicas.
 6. **Team access.** A second policy pull request grants the team the dev-cluster Service. Reverting it revokes access.
 
@@ -56,7 +56,7 @@ flowchart TB
   team["Granted users"]
 
   copilot -- "model calls, attributed" --> aperture
-  copilot -- "writes k8s/, opens" --> pr
+  copilot -- "writes k8s/, pushes a branch" --> pr
   copilot -- "kubectl via ./kubeconfig" --> pam
   deploy -- "GitHub OIDC" --> runner
   runner -- "kubectl apply" --> pam
@@ -75,9 +75,10 @@ flowchart TB
 - The cluster's IP control-plane endpoint is disabled. The platform team uses the IAM-gated DNS endpoint; developers and CI reach the API only through the PAM service.
 - The developer and CI hold Kubernetes `edit` in `dev` only, bound to the identities the connector impersonates: the developer's login and `tag:ci-deployer@service.border0.com`.
 - The `tailscale.com/cap/pam` grant restricts Kubernetes requests to `namespaces: ["dev"]` before RBAC is evaluated.
-- GitHub Actions logs in with GitHub OIDC, scoped by `workflow_ref` to `deploy.yml` on `main`. No secret is stored in GitHub.
+- GitHub Actions logs in with GitHub OIDC. Each trust credential accepts only this repository and one workflow on one ref. No secret is stored in GitHub.
 - Copilot CLI runs in offline BYOK mode against Aperture. It needs no GitHub Copilot sign-in and no model key; Aperture authorizes the developer's tailnet identity.
 - The app's identity card comes from `Tailscale-User-*` headers that Tailscale Serve and the operator's Ingress add. Neither the laptop nor the cluster exposes the app any other way.
+- The policy grants roles, not people: the developer is any tailnet Admin, the team is any Member. The repository contains no login names.
 - Tailscale Funnel is not used.
 
 ## What you need
@@ -86,10 +87,10 @@ flowchart TB
   - HTTPS certificates enabled (**DNS → HTTPS Certificates**).
   - Tailscale PAM enabled (**Settings → PAM**).
   - An Aperture instance tagged `tag:aperture`, reachable at `http://ai` (the launcher's default; any other hostname works with `--endpoint`).
-  - A second user, for the access steps.
+  - A second user with the **Member** role (not Admin), for the access steps.
 - A Google Cloud project with the GKE and Compute Engine APIs enabled, and `gcloud` logged in with permission to create clusters and networks.
 - A GitHub account with Actions enabled.
-- Node.js 24, `kubectl`, `gh`, `terraform`, and `gcloud` installed locally.
+- Node.js 24, `kubectl`, `terraform`, and `gcloud` installed locally.
 - The [Aperture launcher](https://github.com/tailscale/aperture-cli) v0.1.0 or later, and GitHub Copilot CLI:
 
   ```bash
@@ -103,48 +104,44 @@ flowchart TB
 
 These steps play the platform team. Do them once, in order.
 
-### 1. Fork this repository
+### 1. Fork and clone
 
-```bash
-gh repo fork <upstream-owner>/agentic-aided-deployment-workshop --clone
-cd agentic-aided-deployment-workshop
-```
+Select **Fork** on this repository's GitHub page, keep it public, then clone your fork. A public fork makes the container images `deploy.yml` pushes public too, so the cluster pulls them without credentials.
 
-Keep the fork public: GitHub then makes the container images that `deploy.yml` pushes public too, so the cluster pulls them without credentials.
+### 2. Apply the baseline policy
 
-### 2. Create the policy repository
+Open **Access controls** in the admin console and paste `policy/policy.hujson`. If the tailnet already has a policy, merge these sections into it instead, and remove any blanket `* → *` grant so default deny is visible. From now on, changes to the policy go through pull requests to `policy/policy.hujson`, which `.github/workflows/policy.yml` tests and applies.
 
-Follow [`policy/README.md`](policy/README.md). It creates a private repository from `policy/`, has you fill in two login names, and applies the first version by hand.
+### 3. Create two admin credentials
 
-### 3. Build the infrastructure
+Terraform reads them from the environment:
 
-Terraform builds the cluster, the Tailscale operator and its ingress ProxyGroup, the PAM connector and Kubernetes service, the trust credentials, and the developer namespace. It reads two admin credentials from the environment:
-
-- `TAILSCALE_API_KEY`: an API access token for the tailnet (**Settings → Keys**).
+- `TAILSCALE_API_KEY`: an API access token (**Settings → Keys**).
 - `BORDER0_TOKEN`: a Tailscale PAM service-account token. Under **Settings → PAM → Service accounts**, add a service account with the **Member** role, then create a token for it. Tailscale PAM is managed through the [Border0 Terraform provider](https://tailscale.com/docs/privileged-access-management/how-to/manage-resources-terraform).
-
-```bash
-cd infra
-cp terraform.tfvars.example terraform.tfvars
-```
-
-Fill in `terraform.tfvars`:
-
-- `gcp_project`, `tailnet` (**Settings → General**), and `developer_login` (your login on the **Users** page).
-- `name`: a prefix for the cluster, network, and connector. Keep the default unless you share the GCP project with others.
-- `github_repo` and `policy_repo`, as `owner/name`.
-- `github_repo_subject_prefix` and `policy_repo_subject_prefix`. GitHub signs OIDC tokens with immutable owner and repository IDs, so read each prefix from GitHub instead of typing it:
-
-  ```bash
-  gh api repos/<owner>/agentic-aided-deployment-workshop/actions/oidc/customization/sub -q .sub_claim_prefix
-  gh api repos/<owner>/agentic-aided-deployment-policy/actions/oidc/customization/sub -q .sub_claim_prefix
-  ```
-
-Then:
 
 ```bash
 export TAILSCALE_API_KEY=...
 export BORDER0_TOKEN=...
+```
+
+### 4. Create the GitHub trust credentials (once)
+
+`infra/bootstrap` creates three trust credentials that let this repository's workflows log in to the tailnet with GitHub OIDC. They live in their own Terraform state, so tearing down the cluster later does not change them.
+
+```bash
+cd infra/bootstrap
+cp terraform.tfvars.example terraform.tfvars   # set github_repo to your fork, as owner/name
+terraform init
+terraform apply
+```
+
+It prints three client IDs. In your fork on GitHub, open **Settings → Secrets and variables → Actions → Variables** and add each one under the name it is printed with: `TS_DEPLOY_CLIENT_ID`, `TS_POLICY_TEST_CLIENT_ID`, and `TS_POLICY_APPLY_CLIENT_ID`. Client IDs are identifiers, not secrets: a token is issued only to a workflow in your fork whose OIDC claims match.
+
+### 5. Build the cluster
+
+```bash
+cd ..
+cp terraform.tfvars.example terraform.tfvars   # gcp_project and your login from the Users page
 terraform init
 terraform apply -target=google_container_cluster.this -target=google_container_node_pool.this
 terraform apply
@@ -155,21 +152,15 @@ The first apply creates the cluster so the Kubernetes and Helm providers have an
 - **Network:** a VPC with Cloud NAT and a private GKE Standard cluster with two nodes. The Tailscale operator needs privileged pods, so GKE Autopilot does not work.
 - **Tailscale operator:** an OAuth client tagged `tag:k8s-operator`, the operator Helm release, and the `dev-ingress` ProxyGroup with two `tag:k8s-dev` proxies.
 - **Tailscale PAM:** the connector, its token, and the Kubernetes service `gke-dev` with impersonation on. The connector exchanges its token for its own Tailscale auth key.
-- **Trust credentials:** deploy, policy test, and policy apply, all GitHub OIDC.
-- **Developer namespace:** `dev` and its `edit` RoleBinding for the developer and `tag:ci-deployer`.
+- **Developer namespace:** `dev` and its `edit` RoleBinding for your login and `tag:ci-deployer`.
+
+Keep the default `name` unless you share the GCP project with others; it prefixes the cluster, network, and connector.
 
 You should see `<name>-operator`, `dev-ingress-0`, `dev-ingress-1`, and the connector on the **Machines** page, and `svc:gke-dev` on the **Services** page.
 
-### 4. Set the repository variables
+### 6. Check developer access
 
-```bash
-gh variable set TS_DEPLOY_CLIENT_ID --body "$(terraform -chdir=infra output -raw deploy_client_id)"
-gh variable set TS_DEPLOY_AUDIENCE  --body "$(terraform -chdir=infra output -raw deploy_audience)"
-```
-
-Set the policy repository's variables as [`policy/README.md`](policy/README.md#repository-variables) describes. All of these are identifiers, not secrets: a token is issued only to a workflow whose OIDC claims match.
-
-### 5. Check developer access
+From the repository root:
 
 ```bash
 KUBECONFIG=./kubeconfig kubectl get pods
@@ -199,9 +190,20 @@ tailscale serve --bg 3000
 tailscale serve status
 ```
 
-Open the `https://<laptop>.<tailnet>.ts.net` address it prints, from another of your devices. The identity card shows your name: Serve adds the `Tailscale-User-*` headers. The teammate can't connect.
+Open the `https://<laptop>.<tailnet>.ts.net` address it prints, from another of your devices. The identity card shows your name: Serve adds the `Tailscale-User-*` headers. The second user can't connect.
 
-To let the team in, open access pull request 1 from [`policy/README.md`](policy/README.md#access-pull-request-1-share-the-laptop) in the policy repository. The pull request runs `action: test`; merging applies it, and the teammate gets in with their own identity.
+To let the team in, open a pull request that adds this grant to `policy/policy.hujson`:
+
+```diff
+ "grants": [
++  {
++    "src": ["autogroup:member"],
++    "dst": ["autogroup:admin"],
++    "ip":  ["tcp:443"],
++  },
+```
+
+The pull request runs the policy test; merging applies it, and the second user gets in with their own identity.
 
 ### Step 3: Ship it with an agent
 
@@ -222,13 +224,13 @@ Everything after `--` goes to `copilot` unchanged. `aperture copilot --debug` pr
 
 Prompt:
 
-> Ship this app to my dev namespace, highly available and reachable on the tailnet. Follow the platform contract, then open a pull request.
+> Ship this app to my dev namespace, highly available and reachable on the tailnet. Follow the platform contract.
 
-The agent reads `.github/copilot-instructions.md`, writes a `Deployment`, `Service`, and Tailscale `Ingress` like `docs/reference/workshop-app.yaml`, commits them on a branch, and opens the pull request with `gh`. It can check the namespace with `KUBECONFIG=./kubeconfig kubectl get all`. Ask it to try `-n kube-system`; PAM refuses.
+The agent reads `.github/copilot-instructions.md`, writes a `Deployment`, `Service`, and Tailscale `Ingress` like `docs/reference/workshop-app.yaml`, commits them on a branch, and pushes it. It can check the namespace with `KUBECONFIG=./kubeconfig kubectl get all`. Ask it to try `-n kube-system`; PAM refuses.
 
 ### Step 4: Deploy
 
-Merge the pull request after CI passes. CI runs the tests, builds the image, and checks `k8s/`. `deploy.yml` then:
+Open the pull request from the link the push printed, and merge it after CI passes. CI runs the tests, builds the image, and checks `k8s/`. `deploy.yml` then:
 
 1. Builds and pushes `ghcr.io/<owner>/<repo>:<sha>`.
 2. Joins the tailnet as an ephemeral `tag:ci-deployer` with GitHub OIDC, using the official [Tailscale GitHub Action](https://github.com/tailscale/github-action).
@@ -247,13 +249,24 @@ When `ADDRESS` shows `workshop-app.<tailnet>.ts.net`, open `https://workshop-app
 
 ### Step 6: Team access to the dev cluster
 
-Before the change, the teammate's connection to `https://workshop-app.<tailnet>.ts.net` fails. Tailscale drops the traffic before the app sees it, so there is no HTTP 403.
+Before the change, the second user's connection to `https://workshop-app.<tailnet>.ts.net` fails. Tailscale drops the traffic before the app sees it, so there is no HTTP 403.
 
-Open access pull request 2 from [`policy/README.md`](policy/README.md#access-pull-request-2-the-dev-cluster-service). Merge it, and the teammate gets in with their own identity. Revert it to revoke access; the app and cluster are untouched.
+Open a pull request that widens the Service grant in `policy/policy.hujson` from admins to every member:
+
+```diff
+ {
+-  "src": ["autogroup:admin"],
++  "src": ["autogroup:member"],
+   "dst": ["svc:workshop-app", "tag:k8s-dev"],
+   "ip":  ["tcp:443"],
+ },
+```
+
+Merge it, and the second user gets in with their own identity. Revert it to revoke access; the app and cluster are untouched.
 
 ## Repository protection
 
-Protect `main` in both repositories: require pull requests, an approval, passing checks, and resolved conversations. Disable force pushes. Do not let the agent approve or merge its own change. To require your review of workflows and infrastructure, add a `.github/CODEOWNERS` file naming yourself, for example `* @<your-github-user>`. Pin third-party actions to full commit SHAs before using this outside a workshop.
+Protect `main`: require pull requests, an approval, passing checks, and resolved conversations. Disable force pushes. Do not let the agent approve or merge its own change. Pin third-party actions to full commit SHAs before using this outside a workshop.
 
 ## Cleanup
 
@@ -262,7 +275,7 @@ tailscale serve reset
 terraform -chdir=infra destroy
 ```
 
-This removes the cluster, the operator and its proxies, the PAM connector and service, the trust credentials, and `svc:workshop-app`. Remove any leftover `<name>*` machines from the tailnet.
+This removes the cluster, the operator and its proxies, the PAM connector and service, and `svc:workshop-app`. Remove any leftover `<name>*` machines from the tailnet. The trust credentials in `infra/bootstrap` stay, so the GitHub variables keep working for the next rebuild; run `terraform -chdir=infra/bootstrap destroy` only when you are finished with the workshop.
 
 ## Troubleshooting
 
@@ -274,7 +287,7 @@ This removes the cluster, the operator and its proxies, the PAM connector and se
 
 ### The ProxyGroup reports `requested tags [tag:k8s-dev] are invalid or not permitted`
 
-The policy was applied after the operator started. Apply the policy; the operator retries on its own.
+The baseline policy was applied after the operator started. Apply it; the operator retries on its own.
 
 ### The laptop's Serve URL fails with a TLS handshake error
 
@@ -284,17 +297,17 @@ Open it from a different device. On one tested macOS client build, the laptop co
 
 On some tailnets clients only receive a Service's hosts when a grant also names the hosts' tag. The grant therefore lists both `svc:workshop-app` and `tag:k8s-dev` on `tcp:443`.
 
+### The second user is let in before the access pull request
+
+They have the Admin role. The policy treats every Admin as the developer; give the second user the Member role.
+
 ### kubectl through PAM is refused
 
-- `Forbidden` naming `tag:ci-deployer@service.border0.com` or your login: PAM let the request through, and RBAC refused it. Check the `pam-edit` RoleBinding.
+- `Forbidden` naming `tag:ci-deployer@service.border0.com` or your login: PAM let the request through, and RBAC refused it. Check `developer_login` in `infra/terraform.tfvars` matches your login on the **Users** page.
 - `no policy rule allows access ... resource name "..."` inside `dev`: the `cap/pam` Kubernetes rule needs `"resource_names": ["*"]`.
 - `failed to download openapi`: client-side validation reads the cluster-scoped `/openapi` path, which a namespace-scoped grant refuses. Apply with `--validate=false`, as `deploy.yml` does.
 - Connection refused or timeout: the grant to `svc:gke-dev` is missing, or the device is not on the tailnet.
 
-### The deploy or policy workflow fails with `federated identity invalid` or a 403
+### A workflow fails with `federated identity invalid` or a 403
 
-The trust credentials no longer match. They are deleted by `terraform destroy` and recreated with new IDs by `terraform apply`, so set the repository variables again after every rebuild. A 403 can also mean the subject prefix in `terraform.tfvars` was typed instead of read from GitHub.
-
-## Workshop runbook
-
-See `docs/RUNBOOK.md` for the on-stage sequence and `docs/SETUP.md` for the rehearsal checklist.
+The client ID variable doesn't match a trust credential. Check the three variables against `terraform -chdir=infra/bootstrap output`, and that `github_repo` in `infra/bootstrap/terraform.tfvars` matches your fork's `owner/name` exactly, including capitalization.
