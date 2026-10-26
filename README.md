@@ -114,15 +114,12 @@ Open **Access controls** in the admin console and paste `policy/policy.hujson`. 
 
 ### 3. Create two admin credentials
 
-Terraform reads them from the environment:
+Terraform reads them from `terraform.tfvars`, which `.gitignore` keeps out of the repository:
 
-- `TAILSCALE_API_KEY`: an API access token (**Settings → Keys**).
-- `BORDER0_TOKEN`: a Tailscale PAM service-account token. Under **Settings → PAM → Service accounts**, add a service account with the **Member** role, then create a token for it. Tailscale PAM is managed through the [Border0 Terraform provider](https://tailscale.com/docs/privileged-access-management/how-to/manage-resources-terraform).
+- `tailscale_api_key`: an API access token (**Settings → Keys**). It goes in both `infra/bootstrap/terraform.tfvars` and `infra/terraform.tfvars`.
+- `border0_token`: a Tailscale PAM service-account token. Under **Settings → PAM → Service accounts**, add a service account with the **Member** role, then create a token for it. It goes in `infra/terraform.tfvars`. Tailscale PAM is managed through the [Border0 Terraform provider](https://tailscale.com/docs/privileged-access-management/how-to/manage-resources-terraform).
 
-```bash
-export TAILSCALE_API_KEY=...
-export BORDER0_TOKEN=...
-```
+Each directory has a `terraform.tfvars.example` with every field; the next two steps copy them.
 
 ### 4. Create the GitHub trust credentials (once)
 
