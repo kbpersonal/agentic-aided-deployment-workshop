@@ -37,8 +37,8 @@ provider "tailscale" {
 provider "border0" {}
 
 locals {
-  name      = "kb-agentic-workshop"
-  namespace = "dev-${var.developer}"
+  name      = var.name
+  namespace = "dev"
   proxy_tag = "tag:k8s-dev"
 }
 
@@ -193,7 +193,7 @@ resource "border0_connector_token" "this" {
 }
 
 resource "border0_socket" "k8s" {
-  name          = "kb-gke-dev"
+  name          = "gke-dev"
   description   = "Kubernetes API of ${local.name}, scoped by cap/pam grants"
   socket_type   = "kubernetes"
   connector_ids = [border0_connector.this.id]

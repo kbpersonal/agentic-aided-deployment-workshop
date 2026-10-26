@@ -9,7 +9,7 @@ Nobody in this story holds a Kubernetes credential, a cloud credential, a Tailsc
 1. **Localhost.** `npm start`. The app runs on the developer's laptop.
 2. **Share it.** `tailscale serve --bg 3000` publishes it at `https://<laptop>.<tailnet>.ts.net`. A pull request in the policy repository lets the team in.
 3. **Ship it with an agent.** `aperture copilot` starts Copilot CLI with Aperture as its model gateway, so every model call is attributed to the developer's tailnet identity. The agent reads the platform contract, writes `k8s/`, checks the namespace through PAM, and opens a pull request.
-4. **Deploy.** Merging runs `deploy.yml`. The runner joins the tailnet as an ephemeral `tag:ci-deployer` with GitHub OIDC and applies `k8s/` through the Tailscale PAM Kubernetes service `kb-gke-dev`, which only allows namespace `dev-kartik`.
+4. **Deploy.** Merging runs `deploy.yml`. The runner joins the tailnet as an ephemeral `tag:ci-deployer` with GitHub OIDC and applies `k8s/` through the Tailscale PAM Kubernetes service `gke-dev`, which only allows namespace `dev`.
 5. **On the tailnet.** The agent's `Ingress` is served by the operator's `dev-ingress` ProxyGroup as the Tailscale Service `svc:workshop-app`, at `https://workshop-app.<tailnet>.ts.net`, from two proxy replicas.
 6. **Team access.** A second policy pull request grants the team the dev-cluster Service. Reverting it revokes access.
 
@@ -34,13 +34,13 @@ flowchart TB
   end
 
   runner["Ephemeral runner<br/>tag:ci-deployer"]
-  pam["svc:kb-gke-dev<br/>Tailscale PAM Kubernetes service<br/>cap/pam: namespace dev-kartik only"]
+  pam["svc:gke-dev<br/>Tailscale PAM Kubernetes service<br/>cap/pam: namespace dev only"]
 
   subgraph gke["Private GKE Standard cluster"]
     subgraph ns0["namespace tailzero"]
       connector["PAM connector<br/>impersonates the caller"]
     end
-    subgraph ns1["namespace dev-kartik"]
+    subgraph ns1["namespace dev"]
       dep["Deployment workshop-app x2"]
       svc["Service workshop-app"]
       ing["Ingress workshop-app<br/>proxy-group: dev-ingress"]
@@ -73,25 +73,23 @@ flowchart TB
 ## Security boundaries
 
 - The cluster's IP control-plane endpoint is disabled. The platform team uses the IAM-gated DNS endpoint; developers and CI reach the API only through the PAM service.
-- The developer and CI hold Kubernetes `edit` in `dev-kartik` only, bound to the identities the connector impersonates: the developer's login and `tag:ci-deployer@service.border0.com`.
-- The `tailscale.com/cap/pam` grant restricts Kubernetes requests to `namespaces: ["dev-kartik"]` before RBAC is evaluated.
+- The developer and CI hold Kubernetes `edit` in `dev` only, bound to the identities the connector impersonates: the developer's login and `tag:ci-deployer@service.border0.com`.
+- The `tailscale.com/cap/pam` grant restricts Kubernetes requests to `namespaces: ["dev"]` before RBAC is evaluated.
 - GitHub Actions logs in with GitHub OIDC, scoped by `workflow_ref` to `deploy.yml` on `main`. No secret is stored in GitHub.
 - Copilot CLI runs in offline BYOK mode against Aperture. It needs no GitHub Copilot sign-in and no model key; Aperture authorizes the developer's tailnet identity.
 - The app's identity card comes from `Tailscale-User-*` headers that Tailscale Serve and the operator's Ingress add. Neither the laptop nor the cluster exposes the app any other way.
 - Tailscale Funnel is not used.
 
-## Repositories
+## What you need
 
-1. This application repository: app, platform contract, kubeconfig, workflows, and `infra/`. Each developer works on their own fork.
-2. A private policy repository, for example [`kbpersonal/agentic-aided-deployment-policy`](https://github.com/kbpersonal/agentic-aided-deployment-policy). `policy/policy.hujson` here is the template. Keep it private because it contains login names.
-
-## Prerequisites
-
-- A tailnet with HTTPS certificates and Tailscale PAM enabled (**Settings → PAM**), where you are an Admin or Owner.
-- An Aperture instance on the tailnet, tagged `tag:aperture`, reachable at `http://ai` (the launcher's default; any other hostname works with `--endpoint`).
-- Two Tailscale users for the access steps.
-- A Google Cloud project with GKE enabled.
-- Node.js 24, `kubectl`, and `gh` installed locally. Presenters also need `terraform` and `gcloud`.
+- A tailnet where you are an Admin or Owner, with:
+  - HTTPS certificates enabled (**DNS → HTTPS Certificates**).
+  - Tailscale PAM enabled (**Settings → PAM**).
+  - An Aperture instance tagged `tag:aperture`, reachable at `http://ai` (the launcher's default; any other hostname works with `--endpoint`).
+  - A second user, for the access steps.
+- A Google Cloud project with the GKE and Compute Engine APIs enabled, and `gcloud` logged in with permission to create clusters and networks.
+- A GitHub account with Actions enabled.
+- Node.js 24, `kubectl`, `gh`, `terraform`, and `gcloud` installed locally.
 - The [Aperture launcher](https://github.com/tailscale/aperture-cli) v0.1.0 or later, and GitHub Copilot CLI:
 
   ```bash
@@ -101,56 +99,88 @@ flowchart TB
 
   Running `aperture` with no arguments and choosing **GitHub Copilot** also offers to install Copilot CLI.
 
-## Platform setup (before the workshop)
+## Set up the platform
 
-### Tailnet policy
+These steps play the platform team. Do them once, in order.
 
-Copy `policy/policy.hujson` into the private policy repository and replace `AUTHOR_LOGIN` and `TEAMMATE_LOGIN`. If the tailnet already has a policy, merge these sections in, and remove any blanket `* → *` grant so default deny is visible. Apply this first version once by hand; after that, the policy repository's workflow owns the file.
+### 1. Fork this repository
 
-### Infrastructure
+```bash
+gh repo fork <upstream-owner>/agentic-aided-deployment-workshop --clone
+cd agentic-aided-deployment-workshop
+```
 
-Terraform builds everything: the cluster, the Tailscale operator and its ingress ProxyGroup, the PAM connector and Kubernetes service, the trust credentials, and the developer namespace. It needs two admin credentials from the environment:
+Keep the fork public: GitHub then makes the container images that `deploy.yml` pushes public too, so the cluster pulls them without credentials.
 
-- `TAILSCALE_API_KEY`: an API access token for the tailnet.
-- `BORDER0_TOKEN`: a Tailscale PAM service-account token. Create a service account with the **Member** role under **Settings → PAM → Service accounts**, then create a token for it. Tailscale PAM is managed through the [Border0 Terraform provider](https://tailscale.com/docs/privileged-access-management/how-to/manage-resources-terraform).
+### 2. Create the policy repository
+
+Follow [`policy/README.md`](policy/README.md). It creates a private repository from `policy/`, has you fill in two login names, and applies the first version by hand.
+
+### 3. Build the infrastructure
+
+Terraform builds the cluster, the Tailscale operator and its ingress ProxyGroup, the PAM connector and Kubernetes service, the trust credentials, and the developer namespace. It reads two admin credentials from the environment:
+
+- `TAILSCALE_API_KEY`: an API access token for the tailnet (**Settings → Keys**).
+- `BORDER0_TOKEN`: a Tailscale PAM service-account token. Under **Settings → PAM → Service accounts**, add a service account with the **Member** role, then create a token for it. Tailscale PAM is managed through the [Border0 Terraform provider](https://tailscale.com/docs/privileged-access-management/how-to/manage-resources-terraform).
 
 ```bash
 cd infra
 cp terraform.tfvars.example terraform.tfvars
-# GitHub OIDC subjects use immutable owner and repository IDs; read each prefix with:
-gh api repos/OWNER/REPO/actions/oidc/customization/sub -q .sub_claim_prefix
+```
+
+Fill in `terraform.tfvars`:
+
+- `gcp_project`, `tailnet` (**Settings → General**), and `developer_login` (your login on the **Users** page).
+- `name`: a prefix for the cluster, network, and connector. Keep the default unless you share the GCP project with others.
+- `github_repo` and `policy_repo`, as `owner/name`.
+- `github_repo_subject_prefix` and `policy_repo_subject_prefix`. GitHub signs OIDC tokens with immutable owner and repository IDs, so read each prefix from GitHub instead of typing it:
+
+  ```bash
+  gh api repos/<owner>/agentic-aided-deployment-workshop/actions/oidc/customization/sub -q .sub_claim_prefix
+  gh api repos/<owner>/agentic-aided-deployment-policy/actions/oidc/customization/sub -q .sub_claim_prefix
+  ```
+
+Then:
+
+```bash
 export TAILSCALE_API_KEY=...
 export BORDER0_TOKEN=...
 terraform init
-terraform apply -target=google_container_cluster.this
+terraform apply -target=google_container_cluster.this -target=google_container_node_pool.this
 terraform apply
 ```
 
-The first apply creates the cluster so the Kubernetes and Helm providers have an endpoint. The second creates:
+The first apply creates the cluster so the Kubernetes and Helm providers have an endpoint. If it fails with `does not have enough resources available`, the zone is out of capacity: run it again. The second apply creates:
 
-- **Network:** a VPC with Cloud NAT and a private GKE Standard cluster with two nodes. The Tailscale operator is not supported on platforms that forbid privileged pods, such as GKE Autopilot.
+- **Network:** a VPC with Cloud NAT and a private GKE Standard cluster with two nodes. The Tailscale operator needs privileged pods, so GKE Autopilot does not work.
 - **Tailscale operator:** an OAuth client tagged `tag:k8s-operator`, the operator Helm release, and the `dev-ingress` ProxyGroup with two `tag:k8s-dev` proxies.
-- **Tailscale PAM:** connector `kb-agentic-workshop`, its token, and the Kubernetes service `kb-gke-dev` with impersonation on. The connector exchanges its token for its own Tailscale auth key.
+- **Tailscale PAM:** the connector, its token, and the Kubernetes service `gke-dev` with impersonation on. The connector exchanges its token for its own Tailscale auth key.
 - **Trust credentials:** deploy, policy test, and policy apply, all GitHub OIDC.
-- **Developer namespace:** `dev-kartik` and its `edit` RoleBinding for the developer and `tag:ci-deployer`.
+- **Developer namespace:** `dev` and its `edit` RoleBinding for the developer and `tag:ci-deployer`.
 
-### Repository variables
+You should see `<name>-operator`, `dev-ingress-0`, `dev-ingress-1`, and the connector on the **Machines** page, and `svc:gke-dev` on the **Services** page.
+
+### 4. Set the repository variables
 
 ```bash
 gh variable set TS_DEPLOY_CLIENT_ID --body "$(terraform -chdir=infra output -raw deploy_client_id)"
 gh variable set TS_DEPLOY_AUDIENCE  --body "$(terraform -chdir=infra output -raw deploy_audience)"
-
-P=--repo=OWNER/agentic-aided-deployment-policy
-gh variable set TS_TAILNET                $P --body "<tailnet-id>"
-gh variable set TS_POLICY_TEST_CLIENT_ID  $P --body "$(terraform -chdir=infra output -raw policy_test_client_id)"
-gh variable set TS_POLICY_TEST_AUDIENCE   $P --body "$(terraform -chdir=infra output -raw policy_test_audience)"
-gh variable set TS_POLICY_APPLY_CLIENT_ID $P --body "$(terraform -chdir=infra output -raw policy_apply_client_id)"
-gh variable set TS_POLICY_APPLY_AUDIENCE  $P --body "$(terraform -chdir=infra output -raw policy_apply_audience)"
 ```
 
-These are identifiers, not secrets. A token is issued only to a workflow whose OIDC claims match.
+Set the policy repository's variables as [`policy/README.md`](policy/README.md#repository-variables) describes. All of these are identifiers, not secrets: a token is issued only to a workflow whose OIDC claims match.
 
-## Step 1: Localhost
+### 5. Check developer access
+
+```bash
+KUBECONFIG=./kubeconfig kubectl get pods
+KUBECONFIG=./kubeconfig kubectl -n kube-system get pods
+```
+
+The first returns `No resources found in dev namespace.` The second fails with `no policy rule allows access ... in the "kube-system" namespace`: PAM refuses it before Kubernetes sees it. `./kubeconfig` contains no credentials; your Tailscale identity is the credential.
+
+## Run the story
+
+### Step 1: Localhost
 
 ```bash
 npm test
@@ -158,20 +188,22 @@ HOST=127.0.0.1 npm start
 curl http://127.0.0.1:3000/health
 ```
 
-## Step 2: Share it with tailscale serve
+You should see `{"status":"ok",...}`.
+
+### Step 2: Share it with tailscale serve
+
+In another terminal:
 
 ```bash
 tailscale serve --bg 3000
 tailscale serve status
 ```
 
-Open the `https://<laptop>.<tailnet>.ts.net` address it prints. The identity card shows your name: Serve adds the `Tailscale-User-*` headers. A teammate who opens the same URL can't connect.
+Open the `https://<laptop>.<tailnet>.ts.net` address it prints, from another of your devices. The identity card shows your name: Serve adds the `Tailscale-User-*` headers. The teammate can't connect.
 
-To let the team in, open a pull request in the policy repository that adds them to `group:workshop-team` and grants the group your devices on `tcp:443` (see the policy repository README). The pull request runs `action: test`; merging applies it. The agent in Step 3 can open this pull request for you.
+To let the team in, open access pull request 1 from [`policy/README.md`](policy/README.md#access-pull-request-1-share-the-laptop) in the policy repository. The pull request runs `action: test`; merging applies it, and the teammate gets in with their own identity.
 
-Stop sharing with `tailscale serve --https=443 off`.
-
-## Step 3: Ship it with an agent
+### Step 3: Ship it with an agent
 
 From the repository root:
 
@@ -192,20 +224,20 @@ Prompt:
 
 > Ship this app to my dev namespace, highly available and reachable on the tailnet. Follow the platform contract, then open a pull request.
 
-The agent reads `.github/copilot-instructions.md`, writes a `Deployment`, `Service`, and Tailscale `Ingress` like `docs/reference/workshop-app.yaml`, and opens the pull request with `gh`. It can check the namespace with `KUBECONFIG=./kubeconfig kubectl get all`. Ask it to try `-n kube-system`; PAM refuses.
+The agent reads `.github/copilot-instructions.md`, writes a `Deployment`, `Service`, and Tailscale `Ingress` like `docs/reference/workshop-app.yaml`, commits them on a branch, and opens the pull request with `gh`. It can check the namespace with `KUBECONFIG=./kubeconfig kubectl get all`. Ask it to try `-n kube-system`; PAM refuses.
 
-## Step 4: Deploy
+### Step 4: Deploy
 
-Merge the pull request. CI runs the tests, builds the image, and checks `k8s/`. `deploy.yml` then:
+Merge the pull request after CI passes. CI runs the tests, builds the image, and checks `k8s/`. `deploy.yml` then:
 
 1. Builds and pushes `ghcr.io/<owner>/<repo>:<sha>`.
 2. Joins the tailnet as an ephemeral `tag:ci-deployer` with GitHub OIDC, using the official [Tailscale GitHub Action](https://github.com/tailscale/github-action).
 3. Uses the same `./kubeconfig` the developer has.
 4. Substitutes the image into every workload in `k8s/`, applies the manifests through PAM, and waits for the rollout.
 
-A container package pushed from a public repository's workflow inherits public visibility, so the cluster pulls without credentials.
+The run's last step lists two `workshop-app` pods `Running` and the `workshop-app` Ingress.
 
-## Step 5: The app on the tailnet
+### Step 5: The app on the tailnet
 
 ```bash
 KUBECONFIG=./kubeconfig kubectl get ingress workshop-app
@@ -213,15 +245,15 @@ KUBECONFIG=./kubeconfig kubectl get ingress workshop-app
 
 When `ADDRESS` shows `workshop-app.<tailnet>.ts.net`, open `https://workshop-app.<tailnet>.ts.net`. The operator created the Tailscale Service `svc:workshop-app`, and both `dev-ingress` proxies advertise it. The identity card shows you again, this time added by the operator's ingress proxy. Delete one of the app pods through `./kubeconfig` and keep reloading: the `Service` sends every request to the remaining replica.
 
-## Step 6: Team access to the dev cluster
+### Step 6: Team access to the dev cluster
 
 Before the change, the teammate's connection to `https://workshop-app.<tailnet>.ts.net` fails. Tailscale drops the traffic before the app sees it, so there is no HTTP 403.
 
-Open a pull request in the policy repository adding `group:workshop-team` to the `svc:workshop-app` grant. Merge it, and the teammate gets in with their own identity. Revert it to revoke access; the app and cluster are untouched.
+Open access pull request 2 from [`policy/README.md`](policy/README.md#access-pull-request-2-the-dev-cluster-service). Merge it, and the teammate gets in with their own identity. Revert it to revoke access; the app and cluster are untouched.
 
 ## Repository protection
 
-Protect `main`: require pull requests, an approval, CODEOWNER review for workflows and policy, passing checks, and resolved conversations. Disable force pushes. Do not let the agent approve or merge its own change. Pin third-party actions to full commit SHAs before using this outside a workshop.
+Protect `main` in both repositories: require pull requests, an approval, passing checks, and resolved conversations. Disable force pushes. Do not let the agent approve or merge its own change. To require your review of workflows and infrastructure, add a `.github/CODEOWNERS` file naming yourself, for example `* @<your-github-user>`. Pin third-party actions to full commit SHAs before using this outside a workshop.
 
 ## Cleanup
 
@@ -230,7 +262,7 @@ tailscale serve reset
 terraform -chdir=infra destroy
 ```
 
-This removes the cluster, the operator, the PAM connector and service, and the trust credentials. Remove any leftover `kb-agentic-workshop*` and `dev-ingress-*` machines from the tailnet.
+This removes the cluster, the operator and its proxies, the PAM connector and service, the trust credentials, and `svc:workshop-app`. Remove any leftover `<name>*` machines from the tailnet.
 
 ## Troubleshooting
 
@@ -239,6 +271,10 @@ This removes the cluster, the operator, the PAM connector and service, and the t
 - `KUBECONFIG=./kubeconfig kubectl describe ingress workshop-app` shows the operator's events.
 - The `tailscale.com/proxy-group` annotation must be `dev-ingress`, and `ingressClassName` must be `tailscale`.
 - The policy's `autoApprovers.services` must map `tag:k8s-dev` to `tag:k8s-dev`, and `tag:k8s-dev` must be owned by `tag:k8s-operator`.
+
+### The ProxyGroup reports `requested tags [tag:k8s-dev] are invalid or not permitted`
+
+The policy was applied after the operator started. Apply the policy; the operator retries on its own.
 
 ### The laptop's Serve URL fails with a TLS handshake error
 
@@ -251,9 +287,13 @@ On some tailnets clients only receive a Service's hosts when a grant also names 
 ### kubectl through PAM is refused
 
 - `Forbidden` naming `tag:ci-deployer@service.border0.com` or your login: PAM let the request through, and RBAC refused it. Check the `pam-edit` RoleBinding.
-- `no policy rule allows access ... resource name "..."` inside `dev-kartik`: the `cap/pam` Kubernetes rule needs `"resource_names": ["*"]`.
+- `no policy rule allows access ... resource name "..."` inside `dev`: the `cap/pam` Kubernetes rule needs `"resource_names": ["*"]`.
 - `failed to download openapi`: client-side validation reads the cluster-scoped `/openapi` path, which a namespace-scoped grant refuses. Apply with `--validate=false`, as `deploy.yml` does.
-- Connection refused or timeout: the grant to `svc:kb-gke-dev` is missing, or the device is not on the tailnet.
+- Connection refused or timeout: the grant to `svc:gke-dev` is missing, or the device is not on the tailnet.
+
+### The deploy or policy workflow fails with `federated identity invalid` or a 403
+
+The trust credentials no longer match. They are deleted by `terraform destroy` and recreated with new IDs by `terraform apply`, so set the repository variables again after every rebuild. A 403 can also mean the subject prefix in `terraform.tfvars` was typed instead of read from GitHub.
 
 ## Workshop runbook
 

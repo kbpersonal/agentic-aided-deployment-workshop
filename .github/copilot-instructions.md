@@ -1,10 +1,10 @@
 # Platform contract for this repository
 
-The platform team has given this application one Kubernetes namespace, `dev-kartik`, in a private GKE cluster. Nothing outside that namespace is reachable.
+The platform team has given this application one Kubernetes namespace, `dev`, in a private GKE cluster. Nothing outside that namespace is reachable.
 
 ## Cluster access
 
-`./kubeconfig` in this repository points at the cluster through Tailscale PAM (`http://kb-gke-dev`). It contains no credentials: your Tailscale identity is the credential, and it only works in `dev-kartik`. Use it for every `kubectl` command:
+`./kubeconfig` in this repository points at the cluster through Tailscale PAM (`http://gke-dev`). It contains no credentials: your Tailscale identity is the credential, and it only works in `dev`. Use it for every `kubectl` command:
 
 ```bash
 KUBECONFIG=./kubeconfig kubectl get pods
@@ -18,7 +18,7 @@ The cluster runs the Tailscale Kubernetes operator with an ingress ProxyGroup na
 
 ## Deployment rules
 
-- Put Kubernetes manifests in `k8s/`. Every object goes in namespace `dev-kartik`.
+- Put Kubernetes manifests in `k8s/`. Every object goes in namespace `dev`.
 - Run the app as a `Deployment` with at least two replicas and exactly one container listening on port `3000`. Use `GET /health` for readiness and liveness probes.
 - Put a `ClusterIP` `Service` in front of it.
 - Expose it with an `Ingress` named after the app, with:
@@ -27,7 +27,7 @@ The cluster runs the Tailscale Kubernetes operator with an ingress ProxyGroup na
   - `spec.tls[0].hosts: [workshop-app]`, which sets the Tailscale Service name
   - one rule sending `/` (`pathType: Prefix`) to the `Service` on port 80
 - Do not create Namespaces, ServiceAccounts, Roles, RoleBindings, ClusterRoles, or `Service` objects of type `LoadBalancer` or `NodePort`.
-- The deploy workflow replaces every container image with the image it built from the merged commit. Use `ghcr.io/kbpersonal/agentic-aided-deployment-workshop:latest` as a placeholder.
+- The deploy workflow replaces every container image with the image it built from the merged commit. Use `ghcr.io/OWNER/REPO:latest` as a placeholder.
 - The container runs as a non-root user (uid 1000), with a read-only root filesystem, no privilege escalation, and all capabilities dropped.
 - Set CPU and memory requests.
 

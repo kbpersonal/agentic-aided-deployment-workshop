@@ -24,8 +24,8 @@ jobs:
         if: hashFiles('k8s/**') != ''
         run: |
           for f in k8s/*.yaml; do
-            yq -e 'select(.metadata.namespace != "dev-kartik")' "$f" >/dev/null 2>&1 \
-              && { echo "::error file=$f::every object must be in namespace dev-kartik"; exit 1; }
+            yq -e 'select(.metadata.namespace != "dev")' "$f" >/dev/null 2>&1 \
+              && { echo "::error file=$f::every object must be in namespace dev"; exit 1; }
           done
           yq -e 'select(.apiVersion == null or .kind == null or .metadata.name == null)' k8s/*.yaml >/dev/null 2>&1 \
             && { echo "::error::every object needs apiVersion, kind and metadata.name"; exit 1; }

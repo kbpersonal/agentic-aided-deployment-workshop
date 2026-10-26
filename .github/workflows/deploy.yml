@@ -13,7 +13,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: dev-kartik
+  group: dev
   cancel-in-progress: false
 
 jobs:

@@ -11,19 +11,19 @@ Use the root `README.md` for full commands. This checklist is for rehearsal.
 - [ ] No blanket `* → *` grant.
 - [ ] `tag:k8s-operator` and `tag:ci-deployer` in `tagOwners`, `tag:k8s-dev` owned by `tag:k8s-operator`.
 - [ ] `autoApprovers.services` maps `tag:k8s-dev` to `tag:k8s-dev`.
-- [ ] The `cap/pam` grant for `svc:kb-gke-dev` lists only `dev-kartik` in `namespaces`, with `resource_names: ["*"]`.
+- [ ] The `cap/pam` grant for `svc:gke-dev` lists only `dev` in `namespaces`, with `resource_names: ["*"]`.
 - [ ] Policy tests pass.
 
 ## Infrastructure
 
 - [ ] `terraform apply` completed; `terraform plan` shows no changes.
 - [ ] Operator and both `dev-ingress` proxies online.
-- [ ] Connector `kb-agentic-workshop` online and PAM service `kb-gke-dev` active.
+- [ ] PAM connector online and PAM service `gke-dev` active.
 
 ## GitHub
 
 - [ ] App repository variables: `TS_DEPLOY_CLIENT_ID`, `TS_DEPLOY_AUDIENCE`.
-- [ ] Policy repository variables: `TS_TAILNET` and both policy trust credential IDs and audiences.
+- [ ] Policy repository created from `policy/`, with `TS_TAILNET` and both policy trust credential IDs and audiences set.
 - [ ] No Tailscale, cloud, or model secret stored in either repository.
 - [ ] `main` of the template has no `k8s/`.
 

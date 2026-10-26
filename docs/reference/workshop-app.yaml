@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: workshop-app
-  namespace: dev-kartik
+  namespace: dev
   labels:
     app.kubernetes.io/name: workshop-app
 spec:
@@ -22,7 +22,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: app
-          image: ghcr.io/kbpersonal/agentic-aided-deployment-workshop:latest
+          image: ghcr.io/OWNER/REPO:latest
           ports:
             - name: http
               containerPort: 3000
@@ -48,7 +48,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: workshop-app
-  namespace: dev-kartik
+  namespace: dev
 spec:
   selector:
     app.kubernetes.io/name: workshop-app
@@ -61,7 +61,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: workshop-app
-  namespace: dev-kartik
+  namespace: dev
   annotations:
     tailscale.com/proxy-group: dev-ingress
     tailscale.com/tags: tag:k8s-dev
