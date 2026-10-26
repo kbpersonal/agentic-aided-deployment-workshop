@@ -187,7 +187,7 @@ Leave the app running. In another terminal, from the repository root, start GitH
 aperture copilot
 ```
 
-The launcher connects to Aperture at `http://ai`, lists the models Aperture offers, and starts Copilot CLI with the one you pick. Copilot needs no GitHub sign-in, no Copilot plan, and no model key: Aperture authorizes your tailnet identity, and every request appears in the Aperture dashboard under your name. To skip the menu, pass the model as `<provider>/<model>`, exactly as the menu lists it, for example `vercel/anthropic/claude-haiku-4.5`:
+The launcher connects to Aperture at `http://ai`, lists the models Aperture offers, and starts Copilot CLI with the one you pick. Copilot needs no GitHub sign-in, no Copilot plan, and no model key: Aperture authorizes your tailnet identity, and every request appears in the Aperture dashboard under your name. To skip the menu, pass the model as `<provider>/<model>`, exactly as the menu lists it, for example `vercel/anthropic/claude-haiku-5.5`:
 
 ```bash
 aperture copilot --model <provider>/<model>
