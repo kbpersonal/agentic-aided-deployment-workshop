@@ -10,6 +10,16 @@ The platform team has given this application one Kubernetes namespace, `dev`, in
 KUBECONFIG=./kubeconfig kubectl get pods
 ```
 
+## Sharing the app from the laptop
+
+To share the locally running app with the team, run exactly:
+
+```bash
+tailscale serve --bg 3000
+```
+
+Flags go before the port, and `--bg` keeps it running after the command returns, so do not add `&`. It prints `https://<laptop>.<tailnet>.ts.net`; give that URL to the developer. Serve publishes the app as the developer's own device, so it needs no tag, auth key, or `--service`. Who can open the URL is decided by the tailnet policy, not by Serve. Do not run `tailscale serve reset`, `tailscale funnel`, or `tailscale up`.
+
 ## How the app runs in production
 
 The app is a Node.js HTTP server. `npm start` listens on `HOST:PORT` (the container sets `0.0.0.0:3000`). `GET /health` returns `200` when it is ready. It reads the `Tailscale-User-*` headers that the Tailscale Ingress adds, so it must only be reached through that Ingress.
