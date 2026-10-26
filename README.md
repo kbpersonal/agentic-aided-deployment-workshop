@@ -1,8 +1,13 @@
 # Agentic-Aided Deployment Beyond Localhost
 
-A developer has a small Node.js app that works on their laptop. They know nothing about Kubernetes. The platform team has given them one namespace in a private GKE cluster and a kubeconfig that reaches it only through Tailscale. Their agent, GitHub Copilot CLI launched through the Aperture CLI, writes the manifests and pushes them for review. GitHub Actions deploys them through Tailscale PAM, and the Tailscale Kubernetes operator puts the app on the tailnet.
+A developer has a Node.js app running on their laptop. Their platform team provides one namespace in a private GKE cluster and a kubeconfig that reaches it only through Tailscale PAM. The developer's coding agent, GitHub Copilot CLI launched through the Aperture CLI, shares the app with the team from the laptop, then writes the Kubernetes manifests and pushes them for review. GitHub Actions deploys them through Tailscale PAM, and the Tailscale Kubernetes operator publishes the app on the tailnet.
 
-Nobody in this story holds a Kubernetes credential, a cloud credential, a Tailscale auth key, or a model API key. Tailscale identity is the credential at every step, and every access change is a pull request.
+The developer holds no Kubernetes credential, cloud credential, Tailscale auth key, or model API key. Tailscale identity is the credential at every step, and every access change is a pull request.
+
+The repository has two parts:
+
+- [**Set up the environment**](#set-up-the-environment): the platform team's work, done once before the walkthrough. Terraform builds the cluster, the operator, and Tailscale PAM, and the baseline policy is applied.
+- [**Walkthrough**](#walkthrough): the developer's story, run against that environment.
 
 ## The story
 
@@ -77,6 +82,8 @@ flowchart TB
 - The developer and CI hold Kubernetes `edit` in `dev` only, bound to the identities the connector impersonates: the developer's login and `tag:ci-deployer@service.border0.com`.
 - The `tailscale.com/cap/pam` grant restricts Kubernetes requests to `namespaces: ["dev"]` before RBAC is evaluated.
 - GitHub Actions logs in with GitHub OIDC. Each trust credential accepts only this repository and one workflow on one ref. No secret is stored in GitHub.
+- Terraform signs in to Tailscale with workload identity federation: it exchanges the platform engineer's short-lived Google identity token for a Tailscale token. Its federated identity is tagged `tag:terraform` and holds only the scopes of the credentials it creates. No Tailscale API key or OAuth secret exists.
+- The operator signs in with its Kubernetes ServiceAccount token through workload identity federation; it has no OAuth client secret.
 - Copilot CLI runs in offline BYOK mode against Aperture. It needs no GitHub Copilot sign-in and no model key; Aperture authorizes the developer's tailnet identity.
 - The app's identity card comes from `Tailscale-User-*` headers that Tailscale Serve and the operator's Ingress add. Neither the laptop nor the cluster exposes the app any other way.
 - The policy grants roles, not people: the developer is any tailnet Admin, the team is any Member. The repository contains no login names.
@@ -89,9 +96,9 @@ flowchart TB
   - Tailscale PAM enabled (**Settings → PAM**).
   - An Aperture instance tagged `tag:aperture`, reachable at `http://ai` (the launcher's default; any other hostname works with `--endpoint`).
   - A second user with the **Member** role (not Admin), for the access steps.
-- A Google Cloud project with the GKE and Compute Engine APIs enabled, and `gcloud` logged in with permission to create clusters and networks.
+- A Google Cloud project with the GKE and Compute Engine APIs enabled. `gcloud auth login` and `gcloud auth application-default login` done with an account that can create clusters and networks.
 - A GitHub account with Actions enabled.
-- Node.js 24, `kubectl`, `terraform`, and `gcloud` installed locally.
+- Node.js 24, `kubectl`, `terraform`, `gcloud`, and `python3` installed locally.
 - The [Aperture launcher](https://github.com/tailscale/aperture-cli) v0.1.0 or later, and GitHub Copilot CLI:
 
   ```bash
@@ -99,11 +106,11 @@ flowchart TB
   npm install -g @github/copilot
   ```
 
-  Running `aperture` with no arguments and choosing **GitHub Copilot** also offers to install Copilot CLI.
+  Running `aperture` with no arguments and choosing **GitHub Copilot** also offers to install Copilot CLI. `which -a aperture` should list `$HOME/.local/bin/aperture` first, and `aperture --version` should report v0.1.0 or later.
 
-## Set up the platform
+## Set up the environment
 
-These steps play the platform team. Do them once, in order.
+The platform team does these steps once, in order, before the walkthrough.
 
 ### 1. Fork and clone
 
@@ -113,46 +120,50 @@ Select **Fork** on this repository's GitHub page, keep it public, then clone you
 
 Open **Access controls** in the admin console and paste `policy/policy.hujson`. If the tailnet already has a policy, merge these sections into it instead, and remove any blanket `* → *` grant so default deny is visible. From now on, changes to the policy go through pull requests to `policy/policy.hujson`, which `.github/workflows/policy.yml` tests and applies.
 
-### 3. Create two admin credentials
+### 3. Create the Terraform federated identity
 
-Terraform reads them from `terraform.tfvars`, which `.gitignore` keeps out of the repository:
-
-- `tailscale_api_key`: an API access token (**Settings → Keys**). It goes in both `infra/bootstrap/terraform.tfvars` and `infra/terraform.tfvars`.
-- `border0_token`: a Tailscale PAM service-account token. Under **Settings → PAM → Service accounts**, add a service account with the **Member** role, then create a token for it. It goes in `infra/terraform.tfvars`. Tailscale PAM is managed through the [Border0 Terraform provider](https://tailscale.com/docs/privileged-access-management/how-to/manage-resources-terraform).
-
-Each directory has a `terraform.tfvars.example` with every field; the next two steps copy them.
-
-### 4. Create the GitHub trust credentials (once)
-
-`infra/bootstrap` creates three trust credentials that let this repository's workflows log in to the tailnet with GitHub OIDC. They live in their own Terraform state, so tearing down the cluster later does not change them.
+Terraform signs in to Tailscale with your Google login instead of an API key. This prints a link to the admin console with the issuer, your Google account's subject, and gcloud's audience filled in:
 
 ```bash
-cd infra/bootstrap
-cp terraform.tfvars.example terraform.tfvars   # set github_repo to your fork, as owner/name
-terraform init
-terraform apply
+gcloud auth print-identity-token | python3 -c 'import sys,json,base64; p=sys.stdin.read().split(".")[1]; c=json.loads(base64.urlsafe_b64decode(p+"="*(-len(p)%4))); print("https://console.tailscale.com/admin/settings/trust-credentials/add?issuer="+c["iss"]+"&sub="+c["sub"]+"&aud="+c["aud"])'
 ```
 
-It prints three client IDs. In your fork on GitHub, open **Settings → Secrets and variables → Actions → Variables** and add each one under the name it is printed with: `TS_DEPLOY_CLIENT_ID`, `TS_POLICY_TEST_CLIENT_ID`, and `TS_POLICY_APPLY_CLIENT_ID`. Client IDs are identifiers, not secrets: a token is issued only to a workflow in your fork whose OIDC claims match.
+Open the link and complete the form:
 
-### 5. Build the cluster
+- **Description:** `workshop terraform`.
+- **Scopes:**
+  - **Keys → Federated Keys**: write. Terraform creates the operator's and the workflows' federated identities.
+  - **Keys → Auth Keys**, **Devices → Core**, **General → Services**: write. The operator's identity needs them, and an identity can only grant scopes it holds.
+  - **General → Policy File**: write. The policy workflows' identities need it.
+  - **General → Users**: read. Terraform binds every tailnet Owner and Admin to `edit` in `dev`.
+- **Tags:** `tag:terraform`. The baseline policy makes it the owner of `tag:k8s-operator` and `tag:ci-deployer`, the tags Terraform assigns.
+
+Select **Generate credential** and copy the **Client ID**. It is not a secret.
+
+### 4. Create a PAM service-account token
+
+On the [PAM settings page](https://console.tailscale.com/admin/settings/pam), under **Service accounts**, select **Add service account** with the **Member** role, then **Edit → Create token**. Tailscale PAM is managed through the [Border0 Terraform provider](https://tailscale.com/docs/privileged-access-management/how-to/manage-resources-terraform), and this token is its only credential.
+
+### 5. Build the environment
 
 ```bash
-cd ..
-cp terraform.tfvars.example terraform.tfvars   # gcp_project and your login from the Users page
+cd infra
+cp terraform.tfvars.example terraform.tfvars   # fill in the four values; .gitignore keeps this file out of git
+export TAILSCALE_IDENTITY_TOKEN=$(gcloud auth print-identity-token)
 terraform init
 terraform apply -target=google_container_cluster.this -target=google_container_node_pool.this
 terraform apply
 ```
 
-The first apply creates the cluster so the Kubernetes and Helm providers have an endpoint. If it fails with `does not have enough resources available`, the zone is out of capacity: run it again. The second apply creates:
+`TAILSCALE_IDENTITY_TOKEN` is valid for an hour; export it again before a later run. The first apply creates the cluster so the Kubernetes and Helm providers have an endpoint. If it fails with `does not have enough resources available`, the zone is out of capacity: run it again. The second apply creates:
 
 - **Network:** a VPC with Cloud NAT and a private GKE Standard cluster with two nodes. The Tailscale operator needs privileged pods, so GKE Autopilot does not work.
-- **Tailscale operator:** an OAuth client tagged `tag:k8s-operator`, the operator Helm release, and the `dev-ingress` ProxyGroup with two `tag:k8s-dev` proxies.
-- **Tailscale PAM:** the connector, its token, and the Kubernetes service `gke-dev` with impersonation on. The connector exchanges its token for its own Tailscale auth key.
-- **Developer namespace:** `dev` and its `edit` RoleBinding for your login and `tag:ci-deployer`.
+- **Tailscale operator:** a federated identity trusting the cluster's ServiceAccount issuer, the operator Helm release, and the `dev-ingress` ProxyGroup with two `tag:k8s-dev` proxies.
+- **Tailscale PAM:** the connector, its token, and the Kubernetes service `gke-dev` with impersonation on.
+- **Developer namespace:** `dev` and its `edit` RoleBinding for every tailnet Owner and Admin and `tag:ci-deployer`.
+- **GitHub trust credentials:** three federated identities that let this repository's workflows log in with GitHub OIDC.
 
-Keep the default `name` unless you share the GCP project with others; it prefixes the cluster, network, and connector.
+The apply prints `TS_DEPLOY_CLIENT_ID`, `TS_POLICY_TEST_CLIENT_ID`, and `TS_POLICY_APPLY_CLIENT_ID`. In your fork on GitHub, open **Settings → Secrets and variables → Actions → Variables** and add each one under that name. They are identifiers, not secrets: a token is issued only to a workflow in your fork whose OIDC claims match.
 
 You should see `<name>-operator`, `dev-ingress-0`, `dev-ingress-1`, and the connector on the **Machines** page, and `svc:gke-dev` on the **Services** page.
 
@@ -167,7 +178,9 @@ KUBECONFIG=./kubeconfig kubectl -n kube-system get pods
 
 The first returns `No resources found in dev namespace.` The second fails with `no policy rule allows access ... in the "kube-system" namespace`: PAM refuses it before Kubernetes sees it. `./kubeconfig` contains no credentials; your Tailscale identity is the credential.
 
-## Run the story
+## Walkthrough
+
+Everything from here is the developer's side, against the environment above.
 
 ### Step 1: Localhost
 
@@ -278,7 +291,7 @@ tailscale serve reset
 terraform -chdir=infra destroy
 ```
 
-This removes the cluster, the operator and its proxies, the PAM connector and service, and `svc:workshop-app`. Remove any leftover `<name>*` machines from the tailnet. The trust credentials in `infra/bootstrap` stay, so the GitHub variables keep working for the next rebuild; run `terraform -chdir=infra/bootstrap destroy` only when you are finished with the workshop.
+Run the destroy with `TAILSCALE_IDENTITY_TOKEN` exported, as in step 5. It removes the cluster, the operator and its proxies, the PAM connector and service, `svc:workshop-app`, and the three GitHub trust credentials; a rebuild prints new client IDs for the repository variables. Remove any leftover `<name>*` machines from the tailnet, and delete the Terraform federated identity from step 3 when you are finished.
 
 ## Troubleshooting
 
@@ -302,11 +315,15 @@ They have the Admin role. The policy treats every Admin as the developer; give t
 
 ### kubectl through PAM is refused
 
-- `Forbidden` naming `tag:ci-deployer@service.border0.com` or your login: PAM let the request through, and RBAC refused it. Check `developer_login` in `infra/terraform.tfvars` matches your login on the **Users** page.
+- `Forbidden` naming `tag:ci-deployer@service.border0.com` or your login: PAM let the request through, and RBAC refused it. Only tailnet Owners and Admins at the time of the last `terraform apply` are bound; run it again after a role change.
 - `no policy rule allows access ... resource name "..."` inside `dev`: the `cap/pam` Kubernetes rule needs `"resource_names": ["*"]`.
 - `failed to download openapi`: client-side validation reads the cluster-scoped `/openapi` path, which a namespace-scoped grant refuses. Apply with `--validate=false`, as `deploy.yml` does.
 - Connection refused or timeout: the grant to `svc:gke-dev` is missing, or the device is not on the tailnet.
 
 ### A workflow fails with `federated identity invalid` or a 403
 
-The client ID variable doesn't match a trust credential. Check the three variables against `terraform -chdir=infra/bootstrap output`, and that `github_repo` in `infra/bootstrap/terraform.tfvars` matches your fork's `owner/name` exactly, including capitalization.
+The client ID variable doesn't match a trust credential. Check the three variables against `terraform -chdir=infra output`, and that `github_repo` in `infra/terraform.tfvars` matches your fork's `owner/name` exactly, including capitalization.
+
+### Terraform fails with `actor cannot set scopes` or `requested tags ... are invalid or not permitted`
+
+The Terraform federated identity is missing a scope from step 3, or it is not tagged `tag:terraform`, or the baseline policy that makes `tag:terraform` an owner of `tag:k8s-operator` and `tag:ci-deployer` is not applied.

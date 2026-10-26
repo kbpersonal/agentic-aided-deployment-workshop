@@ -1,7 +1,8 @@
 {
 	"tagOwners": {
-		"tag:ci-deployer":     ["autogroup:admin"],
-		"tag:k8s-operator":    ["autogroup:admin"],
+		"tag:terraform":       ["autogroup:admin"],
+		"tag:ci-deployer":     ["autogroup:admin", "tag:terraform"],
+		"tag:k8s-operator":    ["autogroup:admin", "tag:terraform"],
 		"tag:k8s-dev":         ["tag:k8s-operator"],
 		"tag:border0-managed": ["autogroup:admin"],
 		"tag:aperture":        ["autogroup:admin"],
