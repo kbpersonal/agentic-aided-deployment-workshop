@@ -311,7 +311,3 @@ They have the Admin role. The policy treats every Admin as the developer; give t
 ### A workflow fails with `federated identity invalid` or a 403
 
 The client ID variable doesn't match a trust credential. Check the three variables against `terraform -chdir=infra/bootstrap output`, and that `github_repo` in `infra/bootstrap/terraform.tfvars` matches your fork's `owner/name` exactly, including capitalization.
-
-## Workshop runbook
-
-See `docs/RUNBOOK.md` for the on-stage sequence and `docs/SETUP.md` for the rehearsal checklist.
