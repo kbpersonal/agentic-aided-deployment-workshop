@@ -1,6 +1,12 @@
-gcp_project     = "your-gcp-project"
-gcp_region      = "us-central1"
-name            = "agentic-workshop"
-developer_login = "you@github"
-tailscale_api_key = "tskey-api-..."
-border0_token     = "..."
+# Google Cloud project to build the cluster in. `gcloud projects list` shows yours.
+gcp_project = "your-gcp-project"
+
+# Your fork of this repository, as owner/name, exactly as GitHub shows it.
+github_repo = "your-github-user/agentic-aided-deployment-workshop"
+
+# Client ID of the Terraform federated identity from step 3.
+tailscale_client_id = "..."
+
+# PAM service-account token. On https://console.tailscale.com/admin/settings/pam, under Service accounts,
+# select Add service account with the Member role, then Edit → Create token.
+border0_token = "..."

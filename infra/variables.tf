@@ -13,10 +13,6 @@ variable "gcp_region" {
   default = "us-central1"
 }
 
-variable "developer_login" {
-  type        = string
-  description = "The developer's Tailscale login name, exactly as shown on the Users page."
-}
 
 variable "tailzero_image_tag" {
   type    = string
@@ -28,10 +24,14 @@ variable "tailscale_operator_version" {
   default = "1.104.1"
 }
 
-variable "tailscale_api_key" {
+variable "github_repo" {
   type        = string
-  sensitive   = true
-  description = "Tailscale API access token, from Settings → Keys."
+  description = "Your fork of the workshop repository, as owner/name."
+}
+
+variable "tailscale_client_id" {
+  type        = string
+  description = "Client ID of the federated identity Terraform signs in to Tailscale with."
 }
 
 variable "border0_token" {

@@ -31,7 +31,7 @@ provider "google" {
 }
 
 provider "tailscale" {
-  api_key = var.tailscale_api_key
+  oauth_client_id = var.tailscale_client_id
 }
 
 provider "border0" {
@@ -42,6 +42,8 @@ locals {
   name      = var.name
   namespace = "dev"
   proxy_tag = "tag:k8s-dev"
+
+  github_issuer = "https://token.actions.githubusercontent.com"
 }
 
 data "google_client_config" "this" {}
@@ -144,10 +146,13 @@ resource "kubernetes_role_binding_v1" "dev_edit" {
     kind      = "ClusterRole"
     name      = "edit"
   }
-  subject {
-    api_group = "rbac.authorization.k8s.io"
-    kind      = "User"
-    name      = var.developer_login
+  dynamic "subject" {
+    for_each = toset(concat(data.tailscale_users.owners.users[*].login_name, data.tailscale_users.admins.users[*].login_name))
+    content {
+      api_group = "rbac.authorization.k8s.io"
+      kind      = "User"
+      name      = subject.value
+    }
   }
   subject {
     api_group = "rbac.authorization.k8s.io"
@@ -194,8 +199,18 @@ resource "helm_release" "tailzero" {
   })]
 }
 
-resource "tailscale_oauth_client" "operator" {
+data "tailscale_users" "owners" {
+  role = "owner"
+}
+
+data "tailscale_users" "admins" {
+  role = "admin"
+}
+
+resource "tailscale_federated_identity" "operator" {
   description = "GKE workshop Tailscale operator"
+  issuer      = "https://container.googleapis.com/v1/${google_container_cluster.this.id}"
+  subject     = "system:serviceaccount:tailscale:operator"
   scopes      = ["devices:core", "auth_keys", "services"]
   tags        = ["tag:k8s-operator"]
 }
@@ -212,7 +227,7 @@ resource "helm_release" "tailscale_operator" {
   wait             = true
 
   values = [yamlencode({
-    oauth          = { clientId = tailscale_oauth_client.operator.id, clientSecret = tailscale_oauth_client.operator.key }
+    oauth          = { clientId = tailscale_federated_identity.operator.id, audience = tailscale_federated_identity.operator.audience }
     operatorConfig = { hostname = "${local.name}-operator" }
   })]
 }
@@ -229,4 +244,41 @@ resource "helm_release" "ingress_proxygroup" {
   })]
 
   depends_on = [helm_release.tailscale_operator]
+}
+
+resource "tailscale_federated_identity" "deploy" {
+  description = "Workshop deploy workflow"
+  issuer      = local.github_issuer
+  subject     = "repo:*"
+  audience    = "${var.github_repo}/deploy"
+  scopes      = ["auth_keys"]
+  tags        = ["tag:ci-deployer"]
+  custom_claim_rules = {
+    repository   = var.github_repo
+    workflow_ref = "${var.github_repo}/.github/workflows/deploy.yml@refs/heads/main"
+  }
+}
+
+resource "tailscale_federated_identity" "policy_test" {
+  description = "Workshop policy tests on pull requests"
+  issuer      = local.github_issuer
+  subject     = "repo:*"
+  audience    = "${var.github_repo}/policy-test"
+  scopes      = ["policy_file:read"]
+  custom_claim_rules = {
+    repository   = var.github_repo
+    workflow_ref = "${var.github_repo}/.github/workflows/policy.yml@refs/pull/*"
+  }
+}
+
+resource "tailscale_federated_identity" "policy_apply" {
+  description = "Workshop policy apply from main"
+  issuer      = local.github_issuer
+  subject     = "repo:*"
+  audience    = "${var.github_repo}/policy-apply"
+  scopes      = ["policy_file"]
+  custom_claim_rules = {
+    repository   = var.github_repo
+    workflow_ref = "${var.github_repo}/.github/workflows/policy.yml@refs/heads/main"
+  }
 }
