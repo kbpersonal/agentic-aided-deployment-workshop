@@ -21,13 +21,13 @@ async function withServer(run) {
   }
 }
 
-test("renders the deployment passport and security headers", async () =>
+test("renders the page and security headers", async () =>
   withServer(async (base) => {
     const response = await fetch(base);
     const body = await response.text();
     assert.equal(response.status, 200);
-    assert.match(body, /Beyond localhost/);
-    assert.match(body, /No trusted identity forwarded/);
+    assert.match(body, /Tailscale identity headers/);
+    assert.match(body, /No identity headers/);
     assert.equal(response.headers.get("x-frame-options"), "DENY");
     assert.match(
       response.headers.get("content-security-policy"),
@@ -46,7 +46,7 @@ test("renders and escapes a forwarded identity", async () =>
     const body = await response.text();
     assert.match(body, /&lt;script&gt;Raj&lt;\/script&gt;/);
     assert.doesNotMatch(body, /<script>Raj<\/script>/);
-    assert.match(body, /via Tailscale/);
+    assert.match(body, /<code>Tailscale-User-Login<\/code><\/th><td>raj@example.com/);
   }));
 
 test("serves health, HEAD, 404, and 405 correctly", async () =>
