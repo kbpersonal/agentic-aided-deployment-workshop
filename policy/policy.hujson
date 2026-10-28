@@ -22,6 +22,11 @@
 			"ip":  ["*"],
 		},
 		{
+			"src": ["autogroup:member"],
+			"dst": ["autogroup:admin"],
+			"ip":  ["tcp:443"],
+		},
+		{
 			"src": ["autogroup:admin"],
 			"dst": ["svc:workshop-app", "tag:k8s-dev"],
 			"ip":  ["tcp:443"],
