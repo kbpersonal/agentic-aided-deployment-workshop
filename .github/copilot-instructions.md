@@ -59,8 +59,18 @@ The cluster runs the Tailscale Kubernetes operator with an ingress ProxyGroup na
 - The container runs as a non-root user (uid 1000), with a read-only root filesystem, no privilege escalation, and all capabilities dropped.
 - Set CPU and memory requests.
 
+## Finding the app's URL
+
+After a deploy, read the URL from the Ingress:
+
+```bash
+kubectl --context aks-dev get ingress workshop-app -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+```
+
+It prints nothing until the operator has published the app. Run it again every 30 seconds until it prints a hostname, before reporting. Give the developer `https://<hostname>`.
+
 ## Shipping
 
-Create a branch, commit the change, `git push -u origin <branch>`, and open a pull request with `gh pr create --fill`. Give the pull request URL to the developer, who reviews and merges it. Do not approve or merge anything yourself.
+Start every branch from an up-to-date `main` (`git switch main && git pull`), then create the branch, commit the change, `git push -u origin <branch>`, and open a pull request with `gh pr create --fill`. Give the pull request URL to the developer, who reviews and merges it. Do not approve or merge anything yourself.
 
 CI runs `npm test`, builds the image, and checks `k8s/`. After merge, `.github/workflows/deploy.yml` joins the tailnet as `tag:ci-deployer` and applies `k8s/` through `./kubeconfig`, which points at the same `aks-dev` PAM service. Do not edit the workflows.

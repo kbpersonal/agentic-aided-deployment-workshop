@@ -263,11 +263,35 @@ The run ends with two `workshop-app` [pods](https://kubernetes.io/docs/concepts/
 
 ### 6. Open it
 
-```bash
-kubectl get ingress workshop-app
-```
+1. Get the URL from the Ingress:
 
-When `ADDRESS` shows `workshop-app.<tailnet>.ts.net`, the [MagicDNS](https://tailscale.com/docs/features/magicdns) name of `svc:workshop-app`, open `https://workshop-app.<tailnet>.ts.net`. Delete a pod and keep reloading: the other replica keeps serving.
+   ```bash
+   kubectl get ingress workshop-app
+   ```
+
+   ```
+   NAME           CLASS       HOSTS   ADDRESS                         PORTS     AGE
+   workshop-app   tailscale   *       workshop-app.<tailnet>.ts.net   80, 443   2m
+   ```
+
+   The `ADDRESS` stays empty until the operator has published the app, which can lag the end of the deploy. Run the command again until it appears. You can also ask Copilot: "What's the URL of the app in the cluster?"
+
+2. Check the Tailscale Service. On the [Services](https://console.tailscale.com/admin/services) page of the admin console, `svc:workshop-app` is listed under **Advertised** ([check availability](https://tailscale.com/docs/features/tailscale-services#check-availability)).
+
+3. Open `https://workshop-app.<tailnet>.ts.net`, the [MagicDNS](https://tailscale.com/docs/features/magicdns) name of `svc:workshop-app`. The page lists the same identity headers as in step 2, this time added by the operator's ingress proxy.
+
+4. Scale the app down to one replica and keep reloading the page. The remaining replica keeps serving:
+
+   ```bash
+   kubectl scale deployment workshop-app --replicas=1
+   kubectl get pods
+   ```
+
+   Scale it back to two when you're done. The next deploy also resets it to the two replicas in `k8s/`:
+
+   ```bash
+   kubectl scale deployment workshop-app --replicas=2
+   ```
 
 ### 7. Give the team the cluster app
 
@@ -304,7 +328,7 @@ Then, in the admin console:
 
 ## Repository protection
 
-- [Protect `main`](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches): require pull requests, an approval, and passing checks.
+- [Protect `main`](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches): require pull requests and passing checks. GitHub doesn't let you approve a pull request you opened, and Copilot opens them with your `gh` login, so don't require an approval unless the agent pushes as its own identity.
 - Don't let the agent approve or merge its own pull requests.
 - Before using this outside a workshop, [pin third-party actions to commit SHAs](https://docs.github.com/en/actions/reference/security/secure-use#using-third-party-actions).
 
