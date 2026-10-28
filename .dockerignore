@@ -1,0 +1,9 @@
+.git
+.github
+node_modules
+test
+infra
+k8s
+docs
+policy
+npm-debug.log

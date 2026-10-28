@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "policy/**"
+      - "infra/**"
+      - "docs/**"
+      - "**.md"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm test
+      - run: docker build --tag workshop-app:${{ github.sha }} .
+      - name: Validate manifests
+        if: hashFiles('k8s/**') != ''
+        run: |
+          for f in k8s/*.yaml; do
+            yq -e 'select(.metadata.namespace != "dev")' "$f" >/dev/null 2>&1 \
+              && { echo "::error file=$f::every object must be in namespace dev"; exit 1; }
+          done
+          yq -e 'select(.apiVersion == null or .kind == null or .metadata.name == null)' k8s/*.yaml >/dev/null 2>&1 \
+            && { echo "::error::every object needs apiVersion, kind and metadata.name"; exit 1; }
+          yq -e 'select(.kind | test("^(Namespace|ServiceAccount|Role|RoleBinding|ClusterRole|ClusterRoleBinding)$"))' k8s/*.yaml >/dev/null 2>&1 \
+            && { echo "::error::k8s/ must not create namespaces, service accounts or RBAC"; exit 1; }
+          yq -e 'select(.kind == "Service" and (.spec.type == "LoadBalancer" or .spec.type == "NodePort"))' k8s/*.yaml >/dev/null 2>&1 \
+            && { echo "::error::expose the app with the Tailscale Ingress, not a LoadBalancer or NodePort Service"; exit 1; }
+          true
