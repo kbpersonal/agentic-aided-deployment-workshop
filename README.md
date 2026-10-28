@@ -15,7 +15,7 @@ The repository has two parts:
 2. **Share it.** `aperture copilot` starts Copilot CLI with Aperture as its model gateway, so every model call is attributed to the developer's tailnet identity. Asked to share the app, Copilot runs `tailscale serve --bg 3000`, which publishes it at `https://<laptop>.<tailnet>.ts.net` as the developer's own device. Nobody else can open it yet.
 3. **Let the team in.** A pull request to `policy/policy.hujson` adds the grant; merging applies it.
 4. **Ship it with an agent.** The agent reads the platform contract, writes `k8s/`, checks the namespace through PAM, and pushes a branch.
-5. **Deploy.** Merging the pull request runs `deploy.yml`. The runner joins the tailnet as an ephemeral `tag:ci-deployer` with GitHub OIDC and applies `k8s/` through the Tailscale PAM Kubernetes service `gke-dev`, which only allows namespace `dev`.
+5. **Deploy.** Merging the pull request runs `deploy.yml`. The runner joins the tailnet as an ephemeral `tag:ci-deployer` with GitHub OIDC and applies `k8s/` through the Tailscale PAM Kubernetes service `aks-dev`, which only allows namespace `dev`.
 6. **On the tailnet.** The agent's `Ingress` is served by the operator's `dev-ingress` ProxyGroup as the Tailscale Service `svc:workshop-app`, at `https://workshop-app.<tailnet>.ts.net`, from two proxy replicas.
 7. **Team access.** A second policy pull request grants the team the dev-cluster Service. Reverting it revokes access.
 
@@ -40,7 +40,7 @@ flowchart TB
   end
 
   runner["Ephemeral runner<br/>tag:ci-deployer"]
-  pam["svc:gke-dev<br/>Tailscale PAM Kubernetes service<br/>cap/pam: namespace dev only"]
+  pam["svc:aks-dev<br/>Tailscale PAM Kubernetes service<br/>cap/pam: namespace dev only"]
 
   subgraph gke["Private GKE Standard cluster"]
     subgraph ns0["namespace tailzero"]
@@ -116,13 +116,20 @@ The platform team does these steps once, in order, before the walkthrough.
 
 Select **Fork** on this repository's GitHub page, keep it public, then clone your fork. A public fork makes the container images `deploy.yml` pushes public too, so the cluster pulls them without credentials.
 
-### 2. Apply the baseline policy
+### 2. Add the tag owners
 
-Open **Access controls** in the admin console and paste `policy/policy.hujson`. If the tailnet already has a policy, merge these sections into it instead, and remove any blanket `* → *` grant so default deny is visible. From now on, changes to the policy go through pull requests to `policy/policy.hujson`, which `.github/workflows/policy.yml` tests and applies.
+The policy is managed from `policy/policy.hujson` by `.github/workflows/policy.yml`, but the workflow's credential is created by Terraform, and Terraform's own credential needs its tags to exist first. Open **Access controls** in the admin console and merge the `tagOwners` and `autoApprovers` entries of `policy/policy.hujson` into the current policy, adding either section if it doesn't exist yet. Leave the rest of the policy as it is; step 5 replaces it with the full file.
 
 ### 3. Create the Terraform federated identity
 
-Terraform signs in to Tailscale with your Google login instead of an API key. This prints a link to the admin console with the issuer, your Google account's subject, and gcloud's audience filled in:
+Terraform signs in to Tailscale with your Google login instead of an API key. Sign in to gcloud first, with the account that will build the cluster:
+
+```bash
+gcloud auth login
+gcloud auth application-default login
+```
+
+This prints a link to the admin console with the issuer, your Google account's subject, and gcloud's audience filled in:
 
 ```bash
 gcloud auth print-identity-token | python3 -c 'import sys,json,base64; p=sys.stdin.read().split(".")[1]; c=json.loads(base64.urlsafe_b64decode(p+"="*(-len(p)%4))); print("https://console.tailscale.com/admin/settings/trust-credentials/add?issuer="+c["iss"]+"&sub="+c["sub"]+"&aud="+c["aud"])'
@@ -136,7 +143,7 @@ Open the link and complete the form:
   - **Keys → Auth Keys**, **Devices → Core**, **General → Services**: write. The operator's identity needs them, and an identity can only grant scopes it holds.
   - **General → Policy File**: write. The policy workflows' identities need it.
   - **General → Users**: read. Terraform binds every tailnet Owner and Admin to `edit` in `dev`.
-- **Tags:** `tag:terraform`. The baseline policy makes it the owner of `tag:k8s-operator` and `tag:ci-deployer`, the tags Terraform assigns.
+- **Tags:** `tag:terraform`. The tag owners from step 2 make it the owner of `tag:k8s-operator` and `tag:ci-deployer`, the tags Terraform assigns.
 
 Select **Generate credential** and copy the **Client ID**. It is not a secret.
 
@@ -159,13 +166,21 @@ terraform apply
 
 - **Network:** a VPC with Cloud NAT and a private GKE Standard cluster with two nodes. The Tailscale operator needs privileged pods, so GKE Autopilot does not work.
 - **Tailscale operator:** a federated identity trusting the cluster's ServiceAccount issuer, the operator Helm release, and the `dev-ingress` ProxyGroup with two `tag:k8s-dev` proxies.
-- **Tailscale PAM:** the connector, its token, and the Kubernetes service `gke-dev` with impersonation on.
+- **Tailscale PAM:** the connector, its token, and the Kubernetes service `aks-dev` with impersonation on.
 - **Developer namespace:** `dev` and its `edit` RoleBinding for every tailnet Owner and Admin and `tag:ci-deployer`.
 - **GitHub trust credentials:** three federated identities that let this repository's workflows log in with GitHub OIDC.
 
 The apply prints `TS_DEPLOY_CLIENT_ID`, `TS_POLICY_TEST_CLIENT_ID`, and `TS_POLICY_APPLY_CLIENT_ID`. In your fork on GitHub, open **Settings → Secrets and variables → Actions → Variables** and add each one under that name. They are identifiers, not secrets: a token is issued only to a workflow in your fork whose OIDC claims match.
 
-You should see `<name>-operator`, `dev-ingress-0`, `dev-ingress-1`, and the connector on the **Machines** page, and `svc:gke-dev` on the **Services** page.
+Then apply the full policy. `policy/policy.hujson` replaces the tailnet's policy, so first add to it anything else your tailnet needs. Open **Actions → Tailnet policy → Run workflow** on `main`, or:
+
+```bash
+gh workflow run policy.yml --ref main
+```
+
+From now on, changes to the policy go through pull requests to `policy/policy.hujson`: the workflow tests them on the pull request and applies them on merge.
+
+You should see `<name>-operator`, `dev-ingress-0`, `dev-ingress-1`, and the connector on the **Machines** page, and `svc:aks-dev` on the **Services** page.
 
 ### 6. Check developer access
 
@@ -303,7 +318,7 @@ Run the destroy with `TAILSCALE_IDENTITY_TOKEN` exported, as in step 5. It remov
 
 ### The ProxyGroup reports `requested tags [tag:k8s-dev] are invalid or not permitted`
 
-The baseline policy was applied after the operator started. Apply it; the operator retries on its own.
+The `tagOwners` from step 2 are missing `tag:k8s-dev`. Add them; the operator retries on its own.
 
 ### The Service resolves but connections time out
 
@@ -318,7 +333,7 @@ They have the Admin role. The policy treats every Admin as the developer; give t
 - `Forbidden` naming `tag:ci-deployer@service.border0.com` or your login: PAM let the request through, and RBAC refused it. Only tailnet Owners and Admins at the time of the last `terraform apply` are bound; run it again after a role change.
 - `no policy rule allows access ... resource name "..."` inside `dev`: the `cap/pam` Kubernetes rule needs `"resource_names": ["*"]`.
 - `failed to download openapi`: client-side validation reads the cluster-scoped `/openapi` path, which a namespace-scoped grant refuses. Apply with `--validate=false`, as `deploy.yml` does.
-- Connection refused or timeout: the grant to `svc:gke-dev` is missing, or the device is not on the tailnet.
+- Connection refused or timeout: the grant to `svc:aks-dev` is missing, or the device is not on the tailnet.
 
 ### A workflow fails with `federated identity invalid` or a 403
 
@@ -326,4 +341,4 @@ The client ID variable doesn't match a trust credential. Check the three variabl
 
 ### Terraform fails with `actor cannot set scopes` or `requested tags ... are invalid or not permitted`
 
-The Terraform federated identity is missing a scope from step 3, or it is not tagged `tag:terraform`, or the baseline policy that makes `tag:terraform` an owner of `tag:k8s-operator` and `tag:ci-deployer` is not applied.
+The Terraform federated identity is missing a scope from step 3, or it is not tagged `tag:terraform`, or the tag owners from step 2, which make `tag:terraform` an owner of `tag:k8s-operator` and `tag:ci-deployer`, are missing.

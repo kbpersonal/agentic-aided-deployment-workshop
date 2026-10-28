@@ -1,18 +1,22 @@
 variable "name" {
   type        = string
   default     = "agentic-workshop"
-  description = "Prefix for the GKE cluster, network, and PAM connector. Use a unique prefix in a shared GCP project."
+  description = "Name of the resource group, AKS cluster, and PAM connector. Use a unique name in a shared Azure subscription."
 }
 
-variable "gcp_project" {
+variable "azure_subscription_id" {
   type = string
 }
 
-variable "gcp_region" {
+variable "azure_location" {
   type    = string
-  default = "us-central1"
+  default = "eastus2"
 }
 
+variable "node_vm_size" {
+  type    = string
+  default = "Standard_B2s"
+}
 
 variable "tailzero_image_tag" {
   type    = string
