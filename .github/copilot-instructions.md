@@ -1,10 +1,10 @@
 # Platform contract for this repository
 
-The platform team has given this application one Kubernetes namespace, `dev`, in a private GKE cluster. Nothing outside that namespace is reachable.
+The platform team has given this application one Kubernetes namespace, `dev`, in an AKS cluster. Nothing outside that namespace is reachable.
 
 ## Cluster access
 
-`./kubeconfig` in this repository points at the cluster through Tailscale PAM (`http://gke-dev`). It contains no credentials: your Tailscale identity is the credential, and it only works in `dev`. Use it for every `kubectl` command:
+`./kubeconfig` in this repository points at the cluster through Tailscale PAM (`http://aks-dev`). It contains no credentials: your Tailscale identity is the credential, and it only works in `dev`. Use it for every `kubectl` command:
 
 ```bash
 KUBECONFIG=./kubeconfig kubectl get pods

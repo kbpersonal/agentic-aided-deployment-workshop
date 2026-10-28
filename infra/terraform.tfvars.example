@@ -1,5 +1,5 @@
-# Google Cloud project to build the cluster in. `gcloud projects list` shows yours.
-gcp_project = "your-gcp-project"
+# Azure subscription to build the cluster in. `az account show --query id -o tsv` prints yours.
+azure_subscription_id = "00000000-0000-0000-0000-000000000000"
 
 # Your fork of this repository, as owner/name, exactly as GitHub shows it.
 github_repo = "your-github-user/agentic-aided-deployment-workshop"

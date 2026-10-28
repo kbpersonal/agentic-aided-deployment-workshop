@@ -28,7 +28,7 @@
 		},
 		{
 			"src": ["autogroup:admin", "tag:ci-deployer"],
-			"dst": ["svc:gke-dev"],
+			"dst": ["svc:aks-dev"],
 			"ip":  ["*"],
 			"app": {
 				"tailscale.com/cap/pam": [{

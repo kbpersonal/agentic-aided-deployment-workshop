@@ -2,13 +2,13 @@ terraform {
   required_version = ">= 1.9"
 
   required_providers {
-    google = {
-      source  = "hashicorp/google"
-      version = "~> 8.7"
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "~> 5.11"
     }
     kubernetes = {
       source  = "hashicorp/kubernetes"
-      version = "~> 3.3"
+      version = "~> 3.4"
     }
     helm = {
       source  = "hashicorp/helm"
@@ -25,9 +25,9 @@ terraform {
   }
 }
 
-provider "google" {
-  project = var.gcp_project
-  region  = var.gcp_region
+provider "azurerm" {
+  features {}
+  subscription_id = var.azure_subscription_id
 }
 
 provider "tailscale" {
@@ -46,85 +46,60 @@ locals {
   github_issuer = "https://token.actions.githubusercontent.com"
 }
 
-data "google_client_config" "this" {}
-
-resource "google_compute_network" "this" {
-  name                    = "${local.name}-net"
-  auto_create_subnetworks = false
+resource "azurerm_resource_group" "this" {
+  name     = local.name
+  location = var.azure_location
 }
 
-resource "google_compute_subnetwork" "this" {
-  name                     = "${local.name}-subnet"
-  network                  = google_compute_network.this.id
-  ip_cidr_range            = "10.240.0.0/20"
-  private_ip_google_access = true
-}
-
-resource "google_compute_router" "this" {
-  name    = "${local.name}-router"
-  network = google_compute_network.this.id
-}
-
-resource "google_compute_router_nat" "this" {
-  name                               = "${local.name}-nat"
-  router                             = google_compute_router.this.name
-  nat_ip_allocate_option             = "AUTO_ONLY"
-  source_subnetwork_ip_ranges_to_nat = "ALL_SUBNETWORKS_ALL_IP_RANGES"
-
-  log_config {
-    enable = true
-    filter = "ERRORS_ONLY"
-  }
-}
-
-resource "google_container_cluster" "this" {
+resource "azurerm_kubernetes_cluster" "this" {
   name                = local.name
-  location            = var.gcp_region
-  network             = google_compute_network.this.id
-  subnetwork          = google_compute_subnetwork.this.id
-  deletion_protection = false
+  location            = azurerm_resource_group.this.location
+  resource_group_name = azurerm_resource_group.this.name
+  dns_prefix          = local.name
 
-  remove_default_node_pool = true
-  initial_node_count       = 1
+  oidc_issuer_enabled = true
 
-  ip_allocation_policy {}
-
-  private_cluster_config {
-    enable_private_nodes = true
+  node_provisioning_profile {
+    mode = "Manual"
   }
 
-  control_plane_endpoints_config {
-    ip_endpoints_config {
-      enabled = false
+  default_node_pool {
+    name       = "system"
+    vm_size    = var.node_vm_size
+    node_count = 2
+
+    upgrade_settings {
+      max_surge = "10%"
     }
-    dns_endpoint_config {
-      allow_external_traffic = true
-    }
+  }
+
+  network_profile {
+    network_plugin = "azure"
+    outbound_type  = "managedNATGateway"
+  }
+
+  identity {
+    type = "SystemAssigned"
   }
 }
 
-resource "google_container_node_pool" "this" {
-  name           = "${local.name}-pool"
-  cluster        = google_container_cluster.this.id
-  node_locations = ["${var.gcp_region}-a", "${var.gcp_region}-b"]
-  node_count     = 1
-
-  node_config {
-    machine_type = "e2-standard-2"
-    disk_size_gb = 50
-    oauth_scopes = ["https://www.googleapis.com/auth/cloud-platform"]
-  }
+locals {
+  kube = azurerm_kubernetes_cluster.this.kube_config[0]
 }
 
 provider "kubernetes" {
-  host  = "https://${google_container_cluster.this.control_plane_endpoints_config[0].dns_endpoint_config[0].endpoint}"
-  token = data.google_client_config.this.access_token
+  host                   = local.kube.host
+  cluster_ca_certificate = base64decode(local.kube.cluster_ca_certificate)
+  client_certificate     = base64decode(local.kube.client_certificate)
+  client_key             = base64decode(local.kube.client_key)
 }
 
 provider "helm" {
   kubernetes = {
-    host  = "https://${google_container_cluster.this.control_plane_endpoints_config[0].dns_endpoint_config[0].endpoint}"
-    token = data.google_client_config.this.access_token
+    host                   = local.kube.host
+    cluster_ca_certificate = base64decode(local.kube.cluster_ca_certificate)
+    client_certificate     = base64decode(local.kube.client_certificate)
+    client_key             = base64decode(local.kube.client_key)
   }
 }
 
@@ -163,7 +138,7 @@ resource "kubernetes_role_binding_v1" "dev_edit" {
 
 resource "border0_connector" "this" {
   name        = local.name
-  description = "PAM connector in the ${local.name} GKE cluster"
+  description = "PAM connector in the ${local.name} AKS cluster"
 }
 
 resource "border0_connector_token" "this" {
@@ -172,7 +147,7 @@ resource "border0_connector_token" "this" {
 }
 
 resource "border0_socket" "k8s" {
-  name          = "gke-dev"
+  name          = "aks-dev"
   description   = "Kubernetes API of ${local.name}, scoped by cap/pam grants"
   socket_type   = "kubernetes"
   connector_ids = [border0_connector.this.id]
@@ -184,7 +159,7 @@ resource "border0_socket" "k8s" {
 }
 
 resource "helm_release" "tailzero" {
-  depends_on = [google_container_node_pool.this, google_compute_router_nat.this]
+  depends_on = [azurerm_kubernetes_cluster.this]
 
   name             = "tailzero"
   namespace        = "tailzero"
@@ -208,15 +183,15 @@ data "tailscale_users" "admins" {
 }
 
 resource "tailscale_federated_identity" "operator" {
-  description = "GKE workshop Tailscale operator"
-  issuer      = "https://container.googleapis.com/v1/${google_container_cluster.this.id}"
+  description = "AKS workshop Tailscale operator"
+  issuer      = azurerm_kubernetes_cluster.this.oidc_issuer_url
   subject     = "system:serviceaccount:tailscale:operator"
   scopes      = ["devices:core", "auth_keys", "services"]
   tags        = ["tag:k8s-operator"]
 }
 
 resource "helm_release" "tailscale_operator" {
-  depends_on = [google_container_node_pool.this, google_compute_router_nat.this]
+  depends_on = [azurerm_kubernetes_cluster.this]
 
   name             = "tailscale-operator"
   namespace        = "tailscale"
