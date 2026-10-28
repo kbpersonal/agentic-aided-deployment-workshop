@@ -27,6 +27,11 @@
 			"ip":  ["tcp:443"],
 		},
 		{
+			"src": ["autogroup:member"],
+			"dst": ["autogroup:admin"],
+			"ip":  ["tcp:443"],
+		},
+		{
 			"src": ["autogroup:admin", "tag:ci-deployer"],
 			"dst": ["svc:aks-dev"],
 			"ip":  ["*"],
