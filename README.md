@@ -1,6 +1,6 @@
 # Agentic-Aided Deployment Beyond Localhost
 
-A developer has a Node.js app running on their laptop. Their platform team provides one namespace in a private GKE cluster and a kubeconfig that reaches it only through Tailscale PAM. The developer's coding agent, GitHub Copilot CLI launched through the Aperture CLI, shares the app with the team from the laptop, then writes the Kubernetes manifests and pushes them for review. GitHub Actions deploys them through Tailscale PAM, and the Tailscale Kubernetes operator publishes the app on the tailnet.
+A developer has a Node.js app running on their laptop. Their platform team provides one namespace in an AKS cluster and a kubeconfig that reaches it only through Tailscale PAM. The developer's coding agent, GitHub Copilot CLI launched through the Aperture CLI, shares the app with the team from the laptop, then writes the Kubernetes manifests and pushes them for review. GitHub Actions deploys them through Tailscale PAM, and the Tailscale Kubernetes operator publishes the app on the tailnet.
 
 The developer holds no Kubernetes credential, cloud credential, Tailscale auth key, or model API key. Tailscale identity is the credential at every step, and every access change is a pull request.
 
@@ -42,7 +42,7 @@ flowchart TB
   runner["Ephemeral runner<br/>tag:ci-deployer"]
   pam["svc:aks-dev<br/>Tailscale PAM Kubernetes service<br/>cap/pam: namespace dev only"]
 
-  subgraph gke["Private GKE Standard cluster"]
+  subgraph aks["AKS cluster"]
     subgraph ns0["namespace tailzero"]
       connector["PAM connector<br/>impersonates the caller"]
     end
@@ -78,11 +78,11 @@ flowchart TB
 
 ## Security boundaries
 
-- The cluster's IP control-plane endpoint is disabled. The platform team uses the IAM-gated DNS endpoint; developers and CI reach the API only through the PAM service.
+- Only the platform team can reach the Kubernetes API directly, with Azure credentials to the cluster. Developers and CI have no Azure access; they reach the API only through the PAM service.
 - The developer and CI hold Kubernetes `edit` in `dev` only, bound to the identities the connector impersonates: the developer's login and `tag:ci-deployer@service.border0.com`.
 - The `tailscale.com/cap/pam` grant restricts Kubernetes requests to `namespaces: ["dev"]` before RBAC is evaluated.
 - GitHub Actions logs in with GitHub OIDC. Each trust credential accepts only this repository and one workflow on one ref. No secret is stored in GitHub.
-- Terraform signs in to Tailscale with workload identity federation: it exchanges the platform engineer's short-lived Google identity token for a Tailscale token. Its federated identity is tagged `tag:terraform` and holds only the scopes of the credentials it creates. No Tailscale API key or OAuth secret exists.
+- Terraform signs in to Tailscale with workload identity federation: it exchanges the platform engineer's short-lived Entra ID access token for a Tailscale token. Its federated identity is tagged `tag:terraform` and holds only the scopes of the credentials it creates. No Tailscale API key or OAuth secret exists.
 - The operator signs in with its Kubernetes ServiceAccount token through workload identity federation; it has no OAuth client secret.
 - Copilot CLI runs in offline BYOK mode against Aperture. It needs no GitHub Copilot sign-in and no model key; Aperture authorizes the developer's tailnet identity.
 - The app's identity card comes from `Tailscale-User-*` headers that Tailscale Serve and the operator's Ingress add. Neither the laptop nor the cluster exposes the app any other way.
@@ -96,9 +96,9 @@ flowchart TB
   - Tailscale PAM enabled (**Settings → PAM**).
   - An Aperture instance tagged `tag:aperture`, reachable at `http://ai` (the launcher's default; any other hostname works with `--endpoint`).
   - A second user with the **Member** role (not Admin), for the access steps.
-- A Google Cloud project with the GKE and Compute Engine APIs enabled. `gcloud auth login` and `gcloud auth application-default login` done with an account that can create clusters and networks.
+- An Azure subscription where you have the **Contributor** role.
 - A GitHub account with Actions enabled.
-- Node.js 24, `kubectl`, `terraform`, `gcloud`, and `python3` installed locally.
+- Node.js 24, `kubectl`, `terraform`, and the Azure CLI (`az`) installed locally.
 - The [Aperture launcher](https://github.com/tailscale/aperture-cli) v0.1.0 or later, and GitHub Copilot CLI:
 
   ```bash
@@ -122,22 +122,23 @@ The policy is managed from `policy/policy.hujson` by `.github/workflows/policy.y
 
 ### 3. Create the Terraform federated identity
 
-Terraform signs in to Tailscale with your Google login instead of an API key. Sign in to gcloud first, with the account that will build the cluster:
+Terraform signs in to Tailscale with your Entra ID login instead of an API key. Sign in to Azure first, with the account that will build the cluster:
 
 ```bash
-gcloud auth login
-gcloud auth application-default login
+az login
 ```
 
-This prints a link to the admin console with the issuer, your Google account's subject, and gcloud's audience filled in:
+This prints a link to the admin console with your tenant's issuer and the Azure Resource Manager audience filled in, then your Entra object ID:
 
 ```bash
-gcloud auth print-identity-token | python3 -c 'import sys,json,base64; p=sys.stdin.read().split(".")[1]; c=json.loads(base64.urlsafe_b64decode(p+"="*(-len(p)%4))); print("https://console.tailscale.com/admin/settings/trust-credentials/add?issuer="+c["iss"]+"&sub="+c["sub"]+"&aud="+c["aud"])'
+echo "https://console.tailscale.com/admin/settings/trust-credentials/add?issuer=https://sts.windows.net/$(az account show --query tenantId -o tsv)/&sub=*&aud=https://management.azure.com"
+az ad signed-in-user show --query id -o tsv
 ```
 
 Open the link and complete the form:
 
 - **Description:** `workshop terraform`.
+- **Custom claims:** `oid` set to the object ID printed above, so only your login matches.
 - **Scopes:**
   - **Keys → Federated Keys**: write. Terraform creates the operator's and the workflows' federated identities.
   - **Keys → Auth Keys**, **Devices → Core**, **General → Services**: write. The operator's identity needs them, and an identity can only grant scopes it holds.
@@ -156,15 +157,15 @@ On the [PAM settings page](https://console.tailscale.com/admin/settings/pam), un
 ```bash
 cd infra
 cp terraform.tfvars.example terraform.tfvars   # fill in the four values; .gitignore keeps this file out of git
-export TAILSCALE_IDENTITY_TOKEN=$(gcloud auth print-identity-token)
+export TAILSCALE_IDENTITY_TOKEN=$(az account get-access-token --resource https://management.azure.com --query accessToken -o tsv)
 terraform init
-terraform apply -target=google_container_cluster.this -target=google_container_node_pool.this
+terraform apply -target=azurerm_kubernetes_cluster.this
 terraform apply
 ```
 
-`TAILSCALE_IDENTITY_TOKEN` is valid for an hour; export it again before a later run. The first apply creates the cluster so the Kubernetes and Helm providers have an endpoint. If it fails with `does not have enough resources available`, the zone is out of capacity: run it again. The second apply creates:
+`TAILSCALE_IDENTITY_TOKEN` is valid for an hour; export it again before a later run. The first apply creates the cluster so the Kubernetes and Helm providers have an endpoint. The second apply creates:
 
-- **Network:** a VPC with Cloud NAT and a private GKE Standard cluster with two nodes. The Tailscale operator needs privileged pods, so GKE Autopilot does not work.
+- **Cluster:** a resource group named `<name>` and an AKS cluster with two nodes, a managed NAT gateway for egress, and its OIDC issuer enabled.
 - **Tailscale operator:** a federated identity trusting the cluster's ServiceAccount issuer, the operator Helm release, and the `dev-ingress` ProxyGroup with two `tag:k8s-dev` proxies.
 - **Tailscale PAM:** the connector, its token, and the Kubernetes service `aks-dev` with impersonation on.
 - **Developer namespace:** `dev` and its `edit` RoleBinding for every tailnet Owner and Admin and `tag:ci-deployer`.
