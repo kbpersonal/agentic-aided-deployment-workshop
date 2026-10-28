@@ -22,7 +22,7 @@ Flags go before the port, and `--bg` keeps it running after the command returns,
 
 ## Access changes
 
-Who can reach what is decided by `policy/policy.hujson`, the tailnet policy file. Change it only through a pull request, and only the `grants` you are asked to change. Never edit `tagOwners`, `autoApprovers`, or `tests`, and never apply the policy yourself: `.github/workflows/policy.yml` tests the pull request and applies it on merge.
+Who can reach what is decided by `policy/policy.hujson`, the tailnet policy file. Change it only through a pull request of its own, and only when the developer asks for an access change; a deploy pull request never touches it. Change only the `grants` you are asked to change. Never edit `tagOwners`, `autoApprovers`, or `tests`, and never apply the policy yourself: `.github/workflows/policy.yml` tests the pull request and applies it on merge.
 
 - To let the team open apps shared from the laptop with `tailscale serve`, add this grant:
 
