@@ -1,0 +1,9 @@
+apiVersion: tailscale.com/v1alpha1
+kind: ProxyGroup
+metadata:
+  name: {{ .Values.name }}
+spec:
+  type: ingress
+  replicas: {{ .Values.replicas }}
+  tags:
+{{ toYaml .Values.tags | indent 4 }}

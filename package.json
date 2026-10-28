@@ -1,0 +1,16 @@
+{
+  "name": "agentic-aided-deployment-workshop",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A private-by-default deployment demo for GitHub Actions and Tailscale.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test",
+    "test:coverage": "node --test --experimental-test-coverage"
+  }
+}
