@@ -19,15 +19,18 @@ function safeProfileUrl(value) {
   }
 }
 
+const ANONYMOUS = {
+  authenticated: false,
+  login: null,
+  name: null,
+  profilePic: null,
+};
+
 export function readIdentity(headers, trustIdentityHeaders = true) {
-  if (!trustIdentityHeaders) {
-    return { authenticated: false, login: null, name: null, profilePic: null };
-  }
+  if (!trustIdentityHeaders) return { ...ANONYMOUS };
 
   const login = clean(headers.get("tailscale-user-login"));
-  if (!login) {
-    return { authenticated: false, login: null, name: null, profilePic: null };
-  }
+  if (!login) return { ...ANONYMOUS };
 
   return {
     authenticated: true,

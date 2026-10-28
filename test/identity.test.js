@@ -30,3 +30,4 @@ test("rejects unsafe profile URLs and untrusted headers", () => {
   assert.equal(readIdentity(headers).profilePic, null);
   assert.equal(readIdentity(headers, false).authenticated, false);
 });
+

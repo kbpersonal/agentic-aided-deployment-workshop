@@ -4,10 +4,10 @@ The platform team has given this application one Kubernetes namespace, `dev`, in
 
 ## Cluster access
 
-`./kubeconfig` in this repository points at the cluster through Tailscale PAM (`http://aks-dev`). It contains no credentials: your Tailscale identity is the credential, and it only works in `dev`. Use it for every `kubectl` command:
+The kubeconfig context `aks-dev` points at the cluster through Tailscale PAM (`http://aks-dev`). It contains no credentials: your Tailscale identity is the credential, and it only works in `dev`. Pass it on every `kubectl` command, so another selected context is never used:
 
 ```bash
-KUBECONFIG=./kubeconfig kubectl get pods
+kubectl --context aks-dev get pods
 ```
 
 ## Sharing the app from the laptop
@@ -19,6 +19,24 @@ tailscale serve --bg 3000
 ```
 
 Flags go before the port, and `--bg` keeps it running after the command returns, so do not add `&`. It prints `https://<laptop>.<tailnet>.ts.net`; give that URL to the developer. Serve publishes the app as the developer's own device, so it needs no tag, auth key, or `--service`. Who can open the URL is decided by the tailnet policy, not by Serve. Do not run `tailscale serve reset`, `tailscale funnel`, or `tailscale up`.
+
+## Access changes
+
+Who can reach what is decided by `policy/policy.hujson`, the tailnet policy file. Change it only through a pull request, and only the `grants` you are asked to change. Never edit `tagOwners`, `autoApprovers`, or `tests`, and never apply the policy yourself: `.github/workflows/policy.yml` tests the pull request and applies it on merge.
+
+- To let the team open apps shared from the laptop with `tailscale serve`, add this grant:
+
+  ```jsonc
+  {
+    "src": ["autogroup:member"],
+    "dst": ["autogroup:admin"],
+    "ip":  ["tcp:443"],
+  },
+  ```
+
+- To let the team open the app deployed in the cluster, change the `src` of the grant whose `dst` is `["svc:workshop-app", "tag:k8s-dev"]` from `["autogroup:admin"]` to `["autogroup:member"]`.
+
+Open the pull request as described under Shipping.
 
 ## How the app runs in production
 
@@ -43,6 +61,6 @@ The cluster runs the Tailscale Kubernetes operator with an ingress ProxyGroup na
 
 ## Shipping
 
-Create a branch, commit the manifests, and `git push -u origin <branch>`. The push prints a link to open the pull request; give that link to the developer, who opens and merges it. Do not merge anything yourself.
+Create a branch, commit the change, `git push -u origin <branch>`, and open a pull request with `gh pr create --fill`. Give the pull request URL to the developer, who reviews and merges it. Do not approve or merge anything yourself.
 
-CI runs `npm test`, builds the image, and checks `k8s/`. After merge, `.github/workflows/deploy.yml` joins the tailnet as `tag:ci-deployer` and applies `k8s/` through the same `./kubeconfig`. Do not edit the workflows.
+CI runs `npm test`, builds the image, and checks `k8s/`. After merge, `.github/workflows/deploy.yml` joins the tailnet as `tag:ci-deployer` and applies `k8s/` through `./kubeconfig`, which points at the same `aks-dev` PAM service. Do not edit the workflows.
